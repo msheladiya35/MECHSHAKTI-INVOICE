@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="boltGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background Box with rounded corners -->
+  <rect width="512" height="512" rx="96" fill="url(#bgGrad)"/>
+  
+  <!-- Outer glowing ring -->
+  <rect x="32" y="32" width="448" height="448" rx="80" fill="none" stroke="url(#accentGrad)" stroke-width="8" stroke-dasharray="12 12" opacity="0.4"/>
+
+  <!-- Battery Body Shell -->
+  <rect x="136" y="140" width="240" height="290" rx="28" fill="#1e293b" stroke="#38bdf8" stroke-width="12"/>
+  
+  <!-- Battery Top Terminal -->
+  <path d="M 206 110 L 306 110 L 316 140 L 196 140 Z" fill="#38bdf8"/>
+
+  <!-- Battery Level Indicators -->
+  <rect x="166" y="350" width="180" height="18" rx="6" fill="#10b981" opacity="0.9"/>
+  <rect x="166" y="310" width="180" height="18" rx="6" fill="#10b981" opacity="0.9"/>
+  <rect x="166" y="270" width="180" height="18" rx="6" fill="#38bdf8" opacity="0.9"/>
+
+  <!-- Center Lightning Bolt -->
+  <path d="M 276 165 L 216 265 L 266 265 L 236 375 L 306 255 L 256 255 Z" fill="url(#boltGrad)" filter="drop-shadow(0px 4px 10px rgba(245, 158, 11, 0.5))"/>
+
+  <!-- Mechshakti Brand Emblem Accent -->
+  <text x="256" y="475" text-anchor="middle" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="28" letter-spacing="4">MECHSHAKTI</text>
+</svg>

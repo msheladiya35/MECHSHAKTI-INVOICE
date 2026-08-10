@@ -1,0 +1,22 @@
+{
+  "name": "Mechshakti Sales Invoice Portal",
+  "short_name": "Mechshakti",
+  "description": "Official Sales & Invoice Portal for Mechshakti Sellers and Partners",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e1726",
+  "theme_color": "#0e1726",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/assets/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/assets/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

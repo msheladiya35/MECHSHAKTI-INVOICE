@@ -1,0 +1,805 @@
+/* Official Mechshakti Sales Invoice Portal - Brand Theme & Design Token System */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap');
+
+:root {
+  /* Official Mechshakti Brand Color Tokens */
+  --mech-red: #fd4a36;           /* Official Mechshakti Power Red/Orange */
+  --mech-red-hover: #e03825;
+  --mech-red-light: rgba(253, 74, 54, 0.15);
+  
+  --mech-blue: #1e73be;          /* Official Mechshakti Trust Blue */
+  --mech-blue-hover: #165b98;
+  --mech-blue-light: rgba(30, 115, 190, 0.15);
+  
+  --primary: var(--mech-red);
+  --primary-hover: var(--mech-red-hover);
+  --primary-light: var(--mech-red-light);
+  --accent: #38bdf8;
+
+  /* Default Dark Automotive Surface System */
+  --bg-dark: #0e1726;           /* Deep Automotive Navy */
+  --bg-header: #0a111e;
+  --bg-card: #172436;           /* Steel Slate Card Surface */
+  --bg-card-hover: #21324a;
+  --border-color: rgba(255, 255, 255, 0.12);
+  --border-accent: rgba(253, 74, 54, 0.4);
+
+  /* Status Colors */
+  --status-paid-bg: rgba(34, 197, 94, 0.18);
+  --status-paid-text: #4ade80;
+  --status-paid-border: rgba(34, 197, 94, 0.4);
+  
+  --status-partial-bg: rgba(245, 158, 11, 0.18);
+  --status-partial-text: #fbbf24;
+  --status-partial-border: rgba(245, 158, 11, 0.4);
+  
+  --status-unpaid-bg: rgba(239, 68, 68, 0.18);
+  --status-unpaid-text: #f87171;
+  --status-unpaid-border: rgba(239, 68, 68, 0.4);
+  
+  --status-pending-bg: rgba(2, 132, 199, 0.18);
+  --status-pending-text: #38bdf8;
+  --status-pending-border: rgba(2, 132, 199, 0.4);
+
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-subtle: #64748b;
+  
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Outfit', 'Inter', sans-serif;
+  
+  --bottom-nav-height: 68px;
+  --top-header-height: 64px;
+}
+
+/* Light Theme Override Variables */
+:root[data-theme="light"] {
+  --bg-dark: #f1f5f9;           /* Soft Light Slate Background */
+  --bg-header: #ffffff;
+  --bg-card: #ffffff;           /* Crisp White Card Surface */
+  --bg-card-hover: #f8fafc;
+  --border-color: rgba(0, 0, 0, 0.12);
+  --border-accent: rgba(253, 74, 54, 0.5);
+
+  --accent: #0284c7;
+
+  --text-main: #0f172a;         /* High Contrast Dark Slate Text */
+  --text-muted: #475569;
+  --text-subtle: #64748b;
+
+  --status-paid-bg: rgba(22, 163, 74, 0.12);
+  --status-paid-text: #15803d;
+  --status-paid-border: rgba(22, 163, 74, 0.3);
+
+  --status-partial-bg: rgba(217, 119, 6, 0.12);
+  --status-partial-text: #b45309;
+  --status-partial-border: rgba(217, 119, 6, 0.3);
+
+  --status-unpaid-bg: rgba(220, 38, 38, 0.12);
+  --status-unpaid-text: #b91c1c;
+  --status-unpaid-border: rgba(220, 38, 38, 0.3);
+
+  --status-pending-bg: rgba(2, 132, 199, 0.12);
+  --status-pending-text: #0369a1;
+  --status-pending-border: rgba(2, 132, 199, 0.3);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  min-height: 100vh;
+  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 24px);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Phone Simulator Frame Wrapper */
+body.simulating-phone {
+  background: #060b14;
+  padding: 20px 0;
+  display: flex;
+  justify-content: center;
+}
+
+body.simulating-phone .phone-frame-wrapper {
+  width: 390px;
+  height: 844px;
+  background: var(--bg-dark);
+  border: 12px solid #172436;
+  border-radius: 48px;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85);
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Typography & Headings */
+h1, h2, h3, h4, .brand-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Top App Header with Official Mechshakti Logo */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: var(--top-header-height);
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  transition: background 0.2s ease;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo-img {
+  height: 38px;
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 8px rgba(253, 74, 54, 0.3));
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Theme Toggle Button */
+.btn-theme-toggle {
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-theme-toggle:hover {
+  border-color: var(--border-accent);
+}
+
+/* Status Pill */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--status-paid-bg);
+  color: var(--status-paid-text);
+  border: 1px solid var(--status-paid-border);
+}
+
+.status-pill.offline {
+  background: var(--status-unpaid-bg);
+  color: var(--status-unpaid-text);
+  border-color: var(--status-unpaid-border);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.user-badge {
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  background: var(--bg-card);
+  border-radius: 6px;
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+}
+
+/* App Container */
+.app-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* Bottom Navigation Bar (Hidden by default when logged out) */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--bottom-nav-height);
+  background: var(--bg-header);
+  border-top: 1px solid var(--border-color);
+  display: none;
+  align-items: center;
+  justify-content: space-around;
+  z-index: 1000;
+  padding-bottom: env(safe-area-inset-bottom);
+  transition: background 0.2s ease;
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 12px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+}
+
+.nav-item svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.2;
+}
+
+.nav-item.active {
+  color: var(--text-main);
+}
+
+.nav-item.active svg {
+  stroke: var(--mech-red);
+}
+
+.nav-item.nav-prominent {
+  color: #ffffff;
+  background: var(--mech-red);
+  padding: 8px 16px;
+  border-radius: 14px;
+  margin-top: -12px;
+  box-shadow: 0 4px 16px rgba(253, 74, 54, 0.5);
+}
+
+.nav-item.nav-prominent svg {
+  stroke: #ffffff;
+  width: 24px;
+  height: 24px;
+}
+
+/* Clean Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 18px;
+  margin-bottom: 16px;
+  transition: background 0.2s ease;
+}
+
+.card-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Dashboard Summary Cards */
+.dash-greeting {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.dash-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.grid-dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.dash-card {
+  background: var(--bg-header);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.dash-card-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 6px;
+}
+
+.dash-card-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-main);
+  font-family: var(--font-heading);
+}
+
+.dash-card-value.highlight-sales { color: var(--mech-red); }
+.dash-card-value.highlight-collected { color: var(--status-paid-text); }
+.dash-card-value.highlight-outstanding { color: var(--status-unpaid-text); }
+.dash-card-value.highlight-batteries { color: #d97706; }
+
+/* Action Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 20px;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  text-decoration: none;
+  min-height: 48px;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: var(--mech-red);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: var(--mech-red-hover);
+}
+
+.btn-secondary {
+  background: var(--bg-header);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+}
+
+.btn-success {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.btn-danger {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.btn-sm {
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  min-height: 38px;
+  border-radius: 8px;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.action-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+/* Forms & Inputs */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.form-control, .form-select {
+  width: 100%;
+  padding: 14px;
+  background: var(--bg-header);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  outline: none;
+}
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--mech-red);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+/* Filter Pills */
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.filter-pill {
+  flex: 1;
+  padding: 10px 14px;
+  text-align: center;
+  background: var(--bg-header);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.filter-pill.active {
+  background: var(--mech-red);
+  color: #ffffff;
+  border-color: var(--mech-red);
+}
+
+/* Step Progress Indicator */
+.step-indicator {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  background: var(--bg-header);
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.step-item {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.step-item.active {
+  color: var(--text-main);
+}
+
+.step-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  border: 1px solid var(--border-color);
+}
+
+.step-item.active .step-num {
+  background: var(--mech-red);
+  color: #ffffff;
+  border-color: var(--mech-red);
+}
+
+/* Option Pill Selector */
+.option-pills-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.option-pill {
+  padding: 12px;
+  text-align: center;
+  background: var(--bg-header);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.option-pill.active {
+  background: var(--mech-red);
+  color: #ffffff;
+  border-color: var(--mech-red);
+}
+
+.payment-method-pills {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.pm-pill {
+  padding: 10px 4px;
+  text-align: center;
+  background: var(--bg-header);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pm-pill.active {
+  background: var(--mech-blue);
+  color: #ffffff;
+  border-color: var(--mech-blue);
+}
+
+/* Camera QR Scanner Modal & Overlay */
+.scanner-container {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  height: 280px;
+  margin: 0 auto 16px;
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 2px solid var(--mech-red);
+}
+
+.scanner-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scanner-frame-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 180px;
+  height: 180px;
+  border: 3px stroke var(--mech-red);
+  box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.5);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+/* Success Visual Card for QR Detection */
+.qr-success-card {
+  background: var(--status-paid-bg);
+  border: 2px solid var(--status-paid-text);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 16px;
+  animation: pulseSuccess 0.4s ease;
+}
+
+@keyframes pulseSuccess {
+  0% { transform: scale(0.96); opacity: 0.8; }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Customer Item Card */
+.customer-item {
+  background: var(--bg-header);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.customer-item:hover {
+  border-color: var(--border-accent);
+}
+
+.customer-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.customer-sub {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.badge-paid { background: var(--status-paid-bg); color: var(--status-paid-text); border: 1px solid var(--status-paid-border); }
+.badge-partially_paid { background: var(--status-partial-bg); color: var(--status-partial-text); border: 1px solid var(--status-partial-border); }
+.badge-unpaid { background: var(--status-unpaid-bg); color: var(--status-unpaid-text); border: 1px solid var(--status-unpaid-border); }
+.badge-pending { background: var(--status-pending-bg); color: var(--status-pending-text); border: 1px solid var(--status-pending-border); }
+
+/* Khata Ledger */
+.khata-header {
+  background: var(--bg-header);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.khata-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+}
+
+.khata-stat-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-family: var(--font-heading);
+}
+
+.txn-card {
+  background: var(--bg-header);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.txn-card.payment { border-left: 4px solid var(--status-paid-text); }
+.txn-card.invoice { border-left: 4px solid var(--mech-red); }
+
+/* Battery Cards */
+.battery-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.battery-card {
+  background: var(--bg-header);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.battery-card-title { font-weight: 700; font-size: 0.92rem; }
+.battery-card-code { font-size: 0.78rem; color: var(--text-muted); }
+.battery-card-price { font-size: 1.05rem; font-weight: 800; color: var(--mech-red); margin-top: 2px; }
+
+/* Touch Stepper */
+.touch-stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-header);
+}
+
+.touch-stepper-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: none;
+  font-size: 1.3rem;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.touch-stepper-val {
+  width: 46px;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 700;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+}
+
+/* Modals */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 2000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+@media (min-width: 640px) {
+  .modal-overlay { align-items: center; padding: 16px; }
+}
+
+.modal-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-content {
+  background: var(--bg-card);
+  color: var(--text-main);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+@media (min-width: 640px) {
+  .modal-content { border-radius: 20px; max-width: 550px; }
+}
+
+/* Printable Invoice */
+@media print {
+  body { background: #fff !important; color: #000 !important; }
+  .app-header, .bottom-nav, .no-print { display: none !important; }
+  .printable-invoice { background: #fff !important; color: #000 !important; border: none !important; }
+  .printable-invoice td, .printable-invoice th { color: #000 !important; border-color: #ccc !important; }
+}

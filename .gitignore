@@ -1,0 +1,18 @@
+# Local SQLite database files
+*.db
+*.db-shm
+*.db-wal
+mechshakti.db
+
+# Environment variables & secrets
+.env
+.env.local
+.env.production
+.env.development
+
+# Node & Python artifacts
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+.vercel
