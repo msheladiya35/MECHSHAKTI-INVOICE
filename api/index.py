@@ -1,5 +1,6 @@
 import sys
 import os
+from http.server import BaseHTTPRequestHandler
 
 # Add root directory to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,6 +14,7 @@ try:
 except Exception as e:
     print(f"Vercel init error: {e}")
 
+# Vercel top-level BaseHTTPRequestHandler entrypoints
 class handler(MechshaktiRequestHandler):
     def do_GET(self):
         super().do_GET()
@@ -25,3 +27,7 @@ class handler(MechshaktiRequestHandler):
 
     def do_OPTIONS(self):
         super().do_OPTIONS()
+
+# Top-level exports for Vercel discovery
+app = handler
+application = handler
