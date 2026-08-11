@@ -730,6 +730,15 @@ async function openInvoicePreviewModal(invId) {
             <div>Outstanding: <strong style="color:red;">₹${inv.outstanding}</strong></div>
           </div>
         </div>
+
+        <div style="margin-top:14px; padding-top:10px; border-top:1px dashed var(--border-color); font-size:0.75rem; color:var(--text-muted);">
+          <strong style="color:var(--text-main);">Terms & Conditions:</strong>
+          <ol style="margin-left:16px; margin-top:4px; padding:0;">
+            <li>Physical damage, broken seals, or burnt battery terminals are strictly excluded from warranty.</li>
+            <li>Battery warranty is subject to manufacturer terms and registration at warranty portal.</li>
+            <li>Goods once sold will not be taken back or exchanged.</li>
+          </ol>
+        </div>
       </div>
     `;
     document.getElementById('modal-invoice-preview').style.display = 'flex';
@@ -747,9 +756,46 @@ function downloadInvoicePDF() { window.print(); }
 function shareInvoiceWhatsApp() {
   if (!activePreviewInvoice) return;
   const inv = activePreviewInvoice.invoice;
-  const text = `*MECHSHAKTI BATTERY INVOICE*\nInvoice #: ${inv.invoice_number}\nDate: ${inv.invoice_date}\nCustomer: ${inv.customer_name}\nTotal: ₹${inv.grand_total}\nPaid: ₹${inv.paid_amount}\nOutstanding: ₹${inv.outstanding}\nThank you for choosing Mechshakti!`;
-  const url = `https://api.whatsapp.com/send?phone=91${inv.customer_mobile}&text=${encodeURIComponent(text)}`;
+  const items = activePreviewInvoice.items || [];
+  const itemsSummary = items.map(it => `• ${it.product_name_snapshot} x${it.quantity} (₹${it.line_total})`).join('\n');
+
+  const text = `⚡ *MECHSHAKTI TAX INVOICE*\n` +
+    `🧾 *Invoice #*: ${inv.invoice_number}\n` +
+    `📅 *Date*: ${inv.invoice_date}\n` +
+    `👤 *Customer*: ${inv.customer_name} (${inv.customer_shop || 'Individual'})\n` +
+    `🏪 *Seller*: ${inv.seller_shop || inv.seller_name}\n` +
+    `---------------------------------\n` +
+    `📦 *Items*:\n${itemsSummary}\n` +
+    `---------------------------------\n` +
+    `💵 *Grand Total*: ₹${inv.grand_total}\n` +
+    `✅ *Amount Paid*: ₹${inv.paid_amount}\n` +
+    `📌 *Outstanding*: ₹${inv.outstanding}\n` +
+    `---------------------------------\n` +
+    `Thank you for choosing Mechshakti Power Systems!`;
+
+  const cleanPhone = (inv.customer_mobile || '').replace(/[^0-9]/g, '');
+  const phoneParam = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+  const url = `https://api.whatsapp.com/send?phone=${phoneParam}&text=${encodeURIComponent(text)}`;
   window.open(url, '_blank');
+}
+
+async function downloadDatabaseBackup() {
+  try {
+    const data = await apiRequest('/api/admin/export-database');
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mechshakti_db_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    alert('✓ Full database backup downloaded successfully!');
+  } catch (err) {
+    alert('Failed to download backup: ' + err.message);
+  }
 }
 
 // CUSTOMER MANAGEMENT (EDIT, ARCHIVE, LEDGER - Sections 5, 6, 7, 17)

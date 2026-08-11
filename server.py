@@ -465,6 +465,25 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "pending_count": pending_cnt
                     })
 
+                # ADMIN 1-CLICK COMPLETE DATABASE BACKUP EXPORT
+                elif path == "/api/admin/export-database":
+                    if user["role"] != "ADMIN":
+                        return self.send_error_json("Forbidden: Admin access required", 403)
+                    
+                    backup = {
+                        "exported_at": datetime.datetime.now().isoformat(),
+                        "users": [dict(r) for r in cursor.execute("SELECT id, name, email, role, phone, shop_name, city, address, upi_id, status, created_at FROM users").fetchall()],
+                        "customers": [dict(r) for r in cursor.execute("SELECT * FROM customers").fetchall()],
+                        "products": [dict(r) for r in cursor.execute("SELECT * FROM products").fetchall()],
+                        "invoices": [dict(r) for r in cursor.execute("SELECT * FROM invoices").fetchall()],
+                        "invoice_items": [dict(r) for r in cursor.execute("SELECT * FROM invoice_items").fetchall()],
+                        "payments": [dict(r) for r in cursor.execute("SELECT * FROM payments").fetchall()],
+                        "warranty_registrations": [dict(r) for r in cursor.execute("SELECT * FROM warranty_registrations").fetchall()],
+                        "referrals": [dict(r) for r in cursor.execute("SELECT * FROM referrals").fetchall()],
+                        "reward_transactions": [dict(r) for r in cursor.execute("SELECT * FROM reward_transactions").fetchall()]
+                    }
+                    return self.send_json(backup)
+
                 # ADMIN GLOBAL SEARCH & BATTERY TRACEABILITY
                 elif path == "/api/admin/global-search":
                     if user["role"] != "ADMIN":
@@ -700,18 +719,30 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # GET SINGLE INVOICE DETAILS
                 elif path.startswith("/api/invoices/"):
                     inv_id = path.split("/")[-1]
-                    inv = cursor.execute("""
-                        SELECT i.*, c.name as customer_name, c.shop_name as customer_shop, c.mobile as customer_mobile,
-                               c.address as customer_address, c.city as customer_city, c.gst_number as customer_gst,
-                               u.name as seller_name, u.shop_name as seller_shop, u.phone as seller_phone, u.upi_id as seller_upi, u.upi_qr_url as seller_upi_qr
-                        FROM invoices i
-                        JOIN customers c ON c.id = i.customer_id
-                        JOIN users u ON u.id = i.partner_id
-                        WHERE i.id = ?
-                    """, (inv_id,)).fetchone()
-                    
-                    if not inv:
-                        return self.send_error_json("Invoice not found", 404)
+                    if user["role"] == "PARTNER":
+                        inv = cursor.execute("""
+                            SELECT i.*, c.name as customer_name, c.shop_name as customer_shop, c.mobile as customer_mobile,
+                                   c.address as customer_address, c.city as customer_city, c.gst_number as customer_gst,
+                                   u.name as seller_name, u.shop_name as seller_shop, u.phone as seller_phone, u.upi_id as seller_upi, u.upi_qr_url as seller_upi_qr
+                            FROM invoices i
+                            JOIN customers c ON c.id = i.customer_id
+                            JOIN users u ON u.id = i.partner_id
+                            WHERE i.id = ? AND i.partner_id = ?
+                        """, (inv_id, user["id"])).fetchone()
+                        if not inv:
+                            return self.send_error_json("Invoice not found or unauthorized", 404)
+                    else:
+                        inv = cursor.execute("""
+                            SELECT i.*, c.name as customer_name, c.shop_name as customer_shop, c.mobile as customer_mobile,
+                                   c.address as customer_address, c.city as customer_city, c.gst_number as customer_gst,
+                                   u.name as seller_name, u.shop_name as seller_shop, u.phone as seller_phone, u.upi_id as seller_upi, u.upi_qr_url as seller_upi_qr
+                            FROM invoices i
+                            JOIN customers c ON c.id = i.customer_id
+                            JOIN users u ON u.id = i.partner_id
+                            WHERE i.id = ?
+                        """, (inv_id,)).fetchone()
+                        if not inv:
+                            return self.send_error_json("Invoice not found", 404)
 
                     items = cursor.execute("SELECT * FROM invoice_items WHERE invoice_id = ?", (inv_id,)).fetchall()
                     payments = cursor.execute("SELECT * FROM payments WHERE invoice_id = ? ORDER BY id DESC", (inv_id,)).fetchall()
@@ -756,6 +787,15 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                             {p_clause.replace('partner_id', 'i.partner_id')} AND i.invoice_date = ?
                         """, p_params + [today_str]).fetchone()["val"]
 
+                        tot_invoices = cursor.execute(f"SELECT COUNT(*) as cnt FROM invoices {p_clause}", p_params).fetchone()["cnt"]
+                        tot_custs = cursor.execute(f"SELECT COUNT(DISTINCT customer_id) as cnt FROM invoices {p_clause}", p_params).fetchone()["cnt"]
+                        tot_batts = cursor.execute(f"""
+                            SELECT COALESCE(SUM(ii.quantity), 0) as val
+                            FROM invoice_items ii
+                            JOIN invoices i ON i.id = ii.invoice_id
+                            {p_clause.replace('partner_id', 'i.partner_id')}
+                        """, p_params).fetchone()["val"]
+
                         pending_partners_cnt = 0
                         if user["role"] == "ADMIN":
                             pending_partners_cnt = cursor.execute("SELECT COUNT(*) as cnt FROM users WHERE role = 'PARTNER' AND status = 'PENDING_APPROVAL'").fetchone()["cnt"]
@@ -765,6 +805,10 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                             "today_collected": round(t_coll, 2),
                             "total_outstanding": round(tot_out, 2),
                             "today_batteries": t_batt,
+                            "total_batteries": tot_batts,
+                            "total_sales": round(tot_bills, 2),
+                            "total_invoices": tot_invoices,
+                            "total_customers": tot_custs,
                             "pending_partners_count": pending_partners_cnt
                         })
 
