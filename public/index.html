@@ -285,6 +285,7 @@
               <option value="">-- Select Battery --</option>
             </select>
             <button type="button" class="btn btn-secondary" onclick="startCameraScanner('NEW_BILL')">📷 Scan QR</button>
+            <button type="button" class="btn btn-secondary" onclick="openOtherProductModal()">+ Other Product</button>
           </div>
 
           <div id="bill-scanned-card" style="display: none; background: rgba(34, 197, 94, 0.15); border: 1px solid var(--status-active-border); border-radius: 8px; padding: 10px; margin-top: 8px;">
@@ -681,6 +682,82 @@
         </div>
         <button type="submit" class="btn btn-primary btn-block">REQUEST PAYOUT</button>
       </form>
+    </div>
+  </div>
+
+  <!-- Edit Customer Modal -->
+  <div id="modal-edit-customer" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>✏️ Edit Customer Profile</h3>
+        <button class="btn-close" onclick="closeEditCustomerModal()">✕</button>
+      </div>
+      <form id="form-edit-customer">
+        <input type="hidden" id="edit-cust-id">
+        <div class="form-group">
+          <label class="form-label">Customer Name *</label>
+          <input type="text" id="edit-cust-name" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mobile Number *</label>
+          <input type="tel" id="edit-cust-mobile" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Shop / Garage Name</label>
+          <input type="text" id="edit-cust-shop" class="form-control">
+        </div>
+        <div class="form-group">
+          <label class="form-label">City</label>
+          <input type="text" id="edit-cust-city" class="form-control">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Address</label>
+          <input type="text" id="edit-cust-address" class="form-control">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">SAVE CHANGES</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Other Product Modal (Seller Custom Item) -->
+  <div id="modal-other-product" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>+ Add Other Product</h3>
+        <button class="btn-close" onclick="closeOtherProductModal()">✕</button>
+      </div>
+      <form id="form-other-product">
+        <div class="form-group">
+          <label class="form-label">Product / Item Name *</label>
+          <input type="text" id="other-prod-name" class="form-control" placeholder="e.g. Battery Cable 12V" required>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Selling Rate (₹) *</label>
+            <input type="number" id="other-prod-price" class="form-control" step="0.01" value="0" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Quantity *</label>
+            <input type="number" id="other-prod-qty" class="form-control" min="1" value="1" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">GST Rate (%)</label>
+          <input type="number" id="other-prod-gst" class="form-control" value="18">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">ADD TO BILL & SAVE TO CATALOG</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Customer Khatabook Ledger Statement Modal -->
+  <div id="modal-customer-ledger" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 650px;">
+      <div class="modal-header">
+        <h3>📜 Customer Khatabook Ledger</h3>
+        <button class="btn-close" onclick="closeCustomerLedgerModal()">✕</button>
+      </div>
+      <div id="customer-ledger-body"></div>
     </div>
   </div>
 

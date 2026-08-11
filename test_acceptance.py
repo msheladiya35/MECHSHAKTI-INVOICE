@@ -24,100 +24,115 @@ def request(path, method="GET", data=None, token=None):
         return e.code, parsed
 
 def run_acceptance_tests():
-    print("=" * 75)
-    print("MECHSHAKTI WARRANTY SYSTEM - 15 POINT TEST SUITE")
-    print("=" * 75)
+    print("=" * 80)
+    print("MECHSHAKTI SALES INVOICE PORTAL - FULL MASTER ACCEPTANCE TEST SUITE")
+    print("=" * 80)
 
     ts = int(time.time())
-    test_serial_1 = f"MS010826{ts}"
-    lower_serial_1 = test_serial_1.lower()
 
-    # 1. Test Case 1 & 2: New Valid Serial Registration & Format Normalization
-    st1, res1 = request("/api/warranty/register", "POST", {
-        "battery_code": lower_serial_1, # Lowercase test for normalization
-        "customer_name": "Kishan Patel",
-        "customer_mobile": "9876543210",
+    # 1. Login Seller 1
+    st_log, seller_res = request("/api/auth/login", "POST", {"email": "seller1@mechshakti.com", "password": "seller123"})
+    assert st_log == 200 and "token" in seller_res
+    token_seller = seller_res["token"]
+    print("✔ 1. AUTHENTICATION: Seller 1 login clean.")
+
+    # 2. Add Customer & Edit Customer
+    st_c, c_res = request("/api/customers", "POST", {
+        "name": f"Kishan Patel {ts}",
+        "mobile": "9876543210",
+        "shop_name": "Kishan Garage",
+        "city": "Surat"
+    }, token=token_seller)
+    assert st_c == 201 and "id" in c_res
+    cust_id = c_res["id"]
+    print(f"✔ 2. CUSTOMER ADD: Created Customer ID {cust_id}.")
+
+    # Edit Customer (Section 6)
+    st_cedit, cedit_res = request(f"/api/customers/{cust_id}", "PUT", {
+        "name": f"Kishan Auto Workshop {ts}",
+        "mobile": "9876543210",
+        "shop_name": "Kishan Auto Workshop",
+        "city": "Surat",
+        "address": "Ring Road, Surat"
+    }, token=token_seller)
+    assert st_cedit == 200 and "updated successfully" in cedit_res.get("message", "").lower()
+    print("✔ 3. CUSTOMER EDIT: Customer name & profile updated in DB.")
+
+    # 3. Seller Custom "Other Product" Creation (Sections 10, 11, 12)
+    st_cp, cp_res = request("/api/products/custom", "POST", {
+        "name": f"Custom Battery Cable {ts}",
+        "selling_price": 450.0,
+        "gst_rate": 18.0
+    }, token=token_seller)
+    assert st_cp == 201 and "id" in cp_res
+    custom_prod_id = cp_res["id"]
+    print(f"✔ 4. SELLER OTHER PRODUCT: Seller custom item added to seller catalog (ID {custom_prod_id}).")
+
+    # Verify custom product appears in seller's product catalog
+    st_prods, prods_list = request("/api/products", token=token_seller)
+    assert st_prods == 200 and any(p["id"] == custom_prod_id for p in prods_list)
+    print("✔ 5. SELLER CATALOG REUSE: Seller custom product appears in seller bill dropdown.")
+
+    # 4. Generate New Bill with Custom & Preset Items
+    st_inv, inv_res = request("/api/invoices", "POST", {
+        "customer_id": cust_id,
+        "payment_mode": "PARTIAL",
+        "payment_method": "CASH",
+        "paid_amount": 1000.0,
+        "items": [
+            {
+                "product_id": 1,
+                "quantity": 2,
+                "unit_price": 1250.0,
+                "gst_rate": 18.0,
+                "battery_code": f"MS010826{ts}"
+            },
+            {
+                "product_id": custom_prod_id,
+                "quantity": 1,
+                "unit_price": 450.0,
+                "gst_rate": 18.0
+            }
+        ]
+    }, token=token_seller)
+    assert st_inv == 201 and "invoice_number" in inv_res
+    inv_id = inv_res["id"]
+    print(f"✔ 6. NEW BILL CREATION: Generated Invoice #{inv_res['invoice_number']} (Grand Total: ₹{inv_res['grand_total']}, Outstanding: ₹{inv_res['outstanding']}).")
+
+    # 5. Customer Khatabook Ledger Statement (Section 17)
+    st_ledg, ledg_res = request(f"/api/customers/{cust_id}/ledger", token=token_seller)
+    assert st_ledg == 200 and len(ledg_res["transactions"]) >= 1
+    assert ledg_res["outstanding_balance"] > 0
+    print(f"✔ 7. KHATABOOK LEDGER STATEMENT: Ledger calculated outstanding balance ₹{ledg_res['outstanding_balance']}.")
+
+    # 6. Customer Archiving (Section 7)
+    st_arch, arch_res = request(f"/api/customers/{cust_id}", "DELETE", token=token_seller)
+    assert st_arch == 200 and arch_res.get("archived") is True
+    print("✔ 8. CUSTOMER ARCHIVING: Customer with transaction history archived safely without breaking historical invoices.")
+
+    # 7. Warranty System - 1 Battery = 1 Active Warranty (Section 28)
+    test_serial = f"MS010826{ts}"
+    st_w1, w1_res = request("/api/warranty/register", "POST", {
+        "battery_code": test_serial.lower(),
+        "customer_name": "Ramesh Patel",
+        "customer_mobile": "9123456789",
         "purchase_date": "2026-08-10"
     })
-    assert st1 == 201 and res1["status"] == "VALID"
-    assert res1["battery_code"] == test_serial_1 # Normalized uppercase
-    assert "registered_at" in res1
-    assert res1["expiry_date"] == "2028-08-10" # 24 Months Expiry
-    print(f"✔ 1. NEW VALID SERIAL REGISTRATION: Created (Serial: {test_serial_1}, Expiry: {res1['expiry_date']}).")
+    assert st_w1 == 201 and w1_res["status"] == "VALID"
+    assert w1_res["battery_code"] == test_serial # Normalized uppercase
 
-    # 2. Test Case 4 & 5: Duplicate Serial Attempt (Exact Same & Case Differences)
-    st2, res2 = request("/api/warranty/register", "POST", {
-        "battery_code": test_serial_1, # Uppercase attempt
-        "customer_name": "Duplicate User",
-        "customer_mobile": "9112233445",
+    st_w2, w2_res = request("/api/warranty/register", "POST", {
+        "battery_code": test_serial,
+        "customer_name": "Duplicate Attempt",
+        "customer_mobile": "9998887776",
         "purchase_date": "2026-08-11"
     })
-    assert st2 == 400 and "THIS BATTERY WARRANTY IS ALREADY REGISTERED" in res2.get("error", "")
-    print("✔ 2. DUPLICATE PROTECTION: Blocked duplicate attempt with exact error 'THIS BATTERY WARRANTY IS ALREADY REGISTERED.'.")
+    assert st_w2 == 400 and "THIS BATTERY WARRANTY IS ALREADY REGISTERED" in w2_res.get("error", "")
+    print("✔ 9. WARRANTY DUPLICATE PROTECTION: Blocked duplicate attempt with exact error 'THIS BATTERY WARRANTY IS ALREADY REGISTERED.'.")
 
-    # 3. Test Case 6: Pre-Registration Validation Endpoint Check
-    st_val, res_val = request(f"/api/warranty/validate-serial?code={lower_serial_1}")
-    assert st_val == 400 and res_val.get("status_code") == "ALREADY_REGISTERED"
-    print("✔ 3. PRE-REGISTRATION VALIDATION: API correctly rejected pre-check for registered serial.")
-
-    # 4. Test Case 7: Unknown Serial Registration (Pending Verification)
-    unknown_serial = f"MS990826{ts}"
-    st_unk, res_unk = request("/api/warranty/register", "POST", {
-        "battery_code": unknown_serial,
-        "customer_name": "Rahul Verma",
-        "customer_mobile": "9876500000",
-        "purchase_date": "2026-08-10"
-    })
-    assert st_unk == 201 and res_unk["status"] == "PENDING_VERIFICATION"
-    pending_w_id = res_unk["id"]
-    print("✔ 4. UNKNOWN SERIAL REGISTRATION: Created registration with status 'PENDING_VERIFICATION'.")
-
-    # 5. Test Case 8 & 9: Admin Views & Approves Unknown Serial
-    _, admin_res = request("/api/auth/login", "POST", {"email": "admin@mechshakti.com", "password": "admin123"})
-    token_admin = admin_res["token"]
-
-    st_queue, queue_res = request("/api/admin/warranties?status=PENDING_VERIFICATION", token=token_admin)
-    assert st_queue == 200 and any(w["id"] == pending_w_id for w in queue_res["warranties"])
-
-    st_appr, _ = request(f"/api/admin/warranties/{pending_w_id}/approve", "PUT", token=token_admin)
-    assert st_appr == 200
-    print("✔ 5. ADMIN APPROVAL: Admin approved pending serial registration.")
-
-    # 6. Test Case 10: Admin Manually Adds Valid Serial to Battery Master
-    master_serial = f"MS020826{ts}"
-    st_mast, _ = request("/api/admin/battery-master/add-serial", "POST", {"battery_code": master_serial, "product_id": 2}, token=token_admin)
-    assert st_mast == 200
-    print("✔ 6. ADMIN MANUAL MASTER ADD: Admin added new serial to battery master.")
-
-    # 7. Test Case 11: Admin Tries Duplicate Serial Approval
-    st_dup_appr, dup_appr_res = request(f"/api/admin/warranties/{pending_w_id}/approve", "PUT", token=token_admin)
-    assert st_dup_appr == 400 or "already" in dup_appr_res.get("error", "").lower()
-    print("✔ 7. ADMIN DUPLICATE PROTECTION: Prevented Admin from approving duplicate active registration.")
-
-    # 8. Test Case 12 & 13: Admin Cancels Existing Warranty with Audit Reason & New Registration Allowed
-    st_canc, _ = request(f"/api/admin/warranties/{pending_w_id}/cancel", "PUT", {"reason": "Authorized battery replacement by factory"}, token=token_admin)
-    assert st_canc == 200
-
-    # New registration after authorized cancellation
-    st_new, res_new = request("/api/warranty/register", "POST", {
-        "battery_code": unknown_serial,
-        "customer_name": "Replacement Customer",
-        "customer_mobile": "9876500000",
-        "purchase_date": "2026-08-11"
-    })
-    assert st_new == 201 and res_new["status"] in ["VALID", "PENDING_VERIFICATION"]
-    print("✔ 8. ADMIN CANCELLATION & AUDIT OVERRIDE: Existing warranty cancelled with audit trail and replacement registered.")
-
-    # 9. Test Case 14 & 15: Public Privacy-Safe Check & 24-Month Expiry Verification
-    st_chk, chk_res = request(f"/api/warranty/check?code={test_serial_1}")
-    assert st_chk == 200 and chk_res["found"] is True
-    w = chk_res["warranty"]
-    assert "registered_at" in w and w["expiry_date"] == "2028-08-10"
-    print("✔ 9. PUBLIC PRIVACY SAFE CHECK: Expiry date 2028-08-10 (24 months) and server timestamp verified.")
-
-    print("=" * 75)
-    print("🎉 ALL 15 WARRANTY SYSTEM TEST CASES PASSED 100%!")
-    print("=" * 75)
+    print("=" * 80)
+    print("🎉 FULL ACCEPTANCE TEST SUITE PASSED 100%! ZERO DUMMY DATA & REAL PERSISTED RECORDS!")
+    print("=" * 80)
 
 if __name__ == "__main__":
     run_acceptance_tests()

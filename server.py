@@ -5,6 +5,7 @@ import urllib.parse
 import os
 import re
 import datetime
+import time
 import hmac
 import hashlib
 import base64
@@ -540,23 +541,68 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                     return self.send_json({"referrals": [dict(d) for d in downlines]})
 
+                # CUSTOMER KHATABOOK LEDGER STATEMENT
+                elif path.startswith("/api/customers/") and path.endswith("/ledger"):
+                    cust_id = path.split("/")[3]
+                    cust = cursor.execute("SELECT * FROM customers WHERE id = ?", (cust_id,)).fetchone()
+                    if not cust:
+                        return self.send_error_json("Customer not found.", 404)
+
+                    if user["role"] == "PARTNER" and cust["partner_id"] != user["id"]:
+                        return self.send_error_json("Forbidden: Access denied to this customer.", 403)
+
+                    invs = cursor.execute("""
+                        SELECT id, invoice_number, invoice_date as tx_date, grand_total as amount, 'PURCHASE' as type, payment_status as status
+                        FROM invoices WHERE customer_id = ?
+                    """, (cust_id,)).fetchall()
+
+                    pmts = cursor.execute("""
+                        SELECT id, reference_no as invoice_number, payment_date as tx_date, amount, 'PAYMENT' as type, payment_method as status
+                        FROM payments WHERE customer_id = ?
+                    """, (cust_id,)).fetchall()
+
+                    txns = [dict(i) for i in invs] + [dict(p) for p in pmts]
+                    txns.sort(key=lambda x: (x["tx_date"], x["id"]))
+
+                    running_balance = 0.0
+                    for t in txns:
+                        if t["type"] == "PURCHASE":
+                            running_balance += t["amount"]
+                        else:
+                            running_balance -= t["amount"]
+                        t["running_balance"] = round(running_balance, 2)
+
+                    tot_billed = cursor.execute("SELECT COALESCE(SUM(grand_total), 0.0) as val FROM invoices WHERE customer_id = ?", (cust_id,)).fetchone()["val"]
+                    tot_paid = cursor.execute("SELECT COALESCE(SUM(amount), 0.0) as val FROM payments WHERE customer_id = ?", (cust_id,)).fetchone()["val"]
+
+                    return self.send_json({
+                        "customer": dict(cust),
+                        "total_billed": round(tot_billed, 2),
+                        "total_paid": round(tot_paid, 2),
+                        "outstanding_balance": max(0.0, round(tot_billed - tot_paid, 2)),
+                        "transactions": txns
+                    })
+
                 # CUSTOMERS LIST
                 elif path == "/api/customers":
+                    include_archived = query_params.get("include_archived", ["0"])[0] == "1"
+                    where_clause = "WHERE 1=1" if include_archived else "WHERE (c.is_archived IS NULL OR c.is_archived = 0)"
+
                     if user["role"] == "PARTNER":
-                        sql = """
+                        sql = f"""
                             SELECT c.*, 
                                    COUNT(i.id) as total_invoices, 
                                    COALESCE(SUM(i.grand_total), 0.0) as total_billed,
                                    (COALESCE(SUM(i.grand_total), 0.0) - COALESCE(SUM(i.paid_amount), 0.0)) as outstanding_balance
                             FROM customers c
                             LEFT JOIN invoices i ON i.customer_id = c.id AND i.partner_id = c.partner_id
-                            WHERE c.partner_id = ?
+                            {where_clause} AND c.partner_id = ?
                             GROUP BY c.id
                             ORDER BY c.name ASC
                         """
                         customers = cursor.execute(sql, (user["id"],)).fetchall()
                     else:
-                        sql = """
+                        sql = f"""
                             SELECT c.*, u.name as partner_name, 
                                    COUNT(i.id) as total_invoices, 
                                    COALESCE(SUM(i.grand_total), 0.0) as total_billed,
@@ -564,6 +610,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                             FROM customers c
                             JOIN users u ON u.id = c.partner_id
                             LEFT JOIN invoices i ON i.customer_id = c.id
+                            {where_clause}
                             GROUP BY c.id
                             ORDER BY c.name ASC
                         """
@@ -578,9 +625,16 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                     return self.send_json(res)
 
-                # PRODUCTS LIST
+                # PRODUCTS LIST (Includes active global products + seller custom products)
                 elif path == "/api/products":
-                    products = cursor.execute("SELECT * FROM products ORDER BY id ASC").fetchall()
+                    if user["role"] == "PARTNER":
+                        products = cursor.execute("""
+                            SELECT * FROM products 
+                            WHERE status = 'ACTIVE' AND (custom_partner_id IS NULL OR custom_partner_id = ?)
+                            ORDER BY is_custom ASC, id ASC
+                        """, (user["id"],)).fetchall()
+                    else:
+                        products = cursor.execute("SELECT * FROM products WHERE status = 'ACTIVE' ORDER BY id ASC").fetchall()
                     return self.send_json([dict(p) for p in products])
 
                 # PAYMENTS LIST (For Payments Ledger)
@@ -1149,6 +1203,36 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "product": dict(created_prod)
                 }, status=201)
 
+            # SELLER OTHER PRODUCT / CUSTOM PRODUCT CREATION (Sections 10, 11, 12)
+            elif path == "/api/products/custom":
+                name = body.get("name", "").strip()
+                selling_price = float(body.get("selling_price", 0.0))
+                gst_rate = float(body.get("gst_rate", 18.0))
+                model_code = body.get("model_code", "").strip().upper()
+
+                if not name:
+                    return self.send_error_json("Please enter product name.", 400)
+                if selling_price <= 0:
+                    return self.send_error_json("Please enter valid price.", 400)
+
+                if not model_code:
+                    model_code = f"CUST-{user['id']}-{int(time.time()) % 100000}"
+
+                cursor.execute("""
+                    INSERT INTO products (name, model_code, category, selling_price, gst_rate, custom_partner_id, is_custom)
+                    VALUES (?, ?, 'OTHER', ?, ?, ?, 1)
+                """, (name, model_code, selling_price, gst_rate, user["id"]))
+                conn.commit()
+
+                new_prod_id = cursor.lastrowid
+                created_prod = cursor.execute("SELECT * FROM products WHERE id = ?", (new_prod_id,)).fetchone()
+
+                return self.send_json({
+                    "message": f"✓ Custom product '{name}' added to your catalog.",
+                    "id": new_prod_id,
+                    "product": dict(created_prod)
+                }, status=201)
+
             # RECORD PAYMENT
             elif path == "/api/payments":
                 customer_id = body.get("customer_id")
@@ -1384,6 +1468,39 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                 return self.send_json({"message": f"Warranty registration for serial '{w_rec['battery_code']}' approved."})
 
+            # EDIT CUSTOMER DETAILS (Section 6)
+            elif path.startswith("/api/customers/"):
+                cust_id = path.split("/")[-1]
+                cust = cursor.execute("SELECT * FROM customers WHERE id = ?", (cust_id,)).fetchone()
+                if not cust:
+                    return self.send_error_json("Customer not found.", 404)
+
+                if user["role"] == "PARTNER" and cust["partner_id"] != user["id"]:
+                    return self.send_error_json("Forbidden: Access denied to this customer.", 403)
+
+                name = body.get("name", "").strip()
+                mobile = body.get("mobile", "").strip()
+                shop_name = body.get("shop_name", "").strip()
+                address = body.get("address", "").strip()
+                city = body.get("city", "").strip()
+                gst_number = body.get("gst_number", "").strip().upper()
+                vehicle_number = body.get("vehicle_number", "").strip().upper()
+
+                if not name:
+                    return self.send_error_json("Customer name required.", 400)
+                if not mobile:
+                    return self.send_error_json("Mobile number required.", 400)
+
+                cursor.execute("""
+                    UPDATE customers 
+                    SET name = ?, mobile = ?, shop_name = ?, address = ?, city = ?, gst_number = ?, vehicle_number = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (name, mobile, shop_name, address, city, gst_number, vehicle_number, cust_id))
+                conn.commit()
+
+                updated_cust = cursor.execute("SELECT * FROM customers WHERE id = ?", (cust_id,)).fetchone()
+                return self.send_json({"message": "✓ Customer updated successfully.", "customer": dict(updated_cust)})
+
             # ADMIN CANCEL EXISTING WARRANTY WITH AUDIT TRAIL (Section 10)
             elif path.startswith("/api/admin/warranties/") and path.endswith("/cancel"):
                 if user["role"] != "ADMIN":
@@ -1408,6 +1525,45 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 return self.send_error_json("Not Found", 404)
 
+        finally:
+            conn.close()
+
+    def do_DELETE(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        user = self.get_auth_user()
+        if not user:
+            return self.send_error_json("Unauthorized", 401)
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        try:
+            # ARCHIVE / DELETE CUSTOMER (Section 7)
+            if path.startswith("/api/customers/"):
+                cust_id = path.split("/")[-1]
+                cust = cursor.execute("SELECT * FROM customers WHERE id = ?", (cust_id,)).fetchone()
+                if not cust:
+                    return self.send_error_json("Customer not found.", 404)
+
+                if user["role"] == "PARTNER" and cust["partner_id"] != user["id"]:
+                    return self.send_error_json("Forbidden: Access denied.", 403)
+
+                has_invs = cursor.execute("SELECT id FROM invoices WHERE customer_id = ?", (cust_id,)).fetchone()
+                has_pmts = cursor.execute("SELECT id FROM payments WHERE customer_id = ?", (cust_id,)).fetchone()
+
+                if has_invs or has_pmts:
+                    cursor.execute("UPDATE customers SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (cust_id,))
+                    conn.commit()
+                    return self.send_json({"message": "✓ Customer archived successfully. Historical transaction records preserved.", "archived": True})
+                else:
+                    cursor.execute("DELETE FROM customers WHERE id = ?", (cust_id,))
+                    conn.commit()
+                    return self.send_json({"message": "✓ Customer deleted successfully.", "deleted": True})
+
+            else:
+                return self.send_error_json("Not Found", 404)
         finally:
             conn.close()
 

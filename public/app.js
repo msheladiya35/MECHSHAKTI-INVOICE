@@ -30,6 +30,40 @@ const tabTitlesMap = {
   'admin-search': 'Admin Global Search'
 };
 
+// Double submission & Loading State Utility (Sections 32 & 33)
+async function withLoadingState(btnElement, asyncFn) {
+  if (!btnElement) return await asyncFn();
+  const origText = btnElement.innerHTML;
+  btnElement.disabled = true;
+  btnElement.innerHTML = '⏳ Processing...';
+  try {
+    return await asyncFn();
+  } finally {
+    btnElement.disabled = false;
+    btnElement.innerHTML = origText;
+  }
+}
+
+// Audio Feedback Beep for QR Scanner (Section 20)
+function triggerAudioBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime); // 880Hz A5 pitch
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+  } catch (e) {}
+
+  if (navigator.vibrate) {
+    navigator.vibrate([100, 50, 100]);
+  }
+}
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
   applyTheme(currentTheme);
@@ -119,7 +153,6 @@ function switchTab(tabId) {
     return;
   }
 
-  // Update header sub-heading title
   const subTitle = document.getElementById('header-active-tab-title');
   if (subTitle && tabTitlesMap[tabId]) {
     subTitle.textContent = tabTitlesMap[tabId];
@@ -206,19 +239,22 @@ document.getElementById('form-login')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const email = document.getElementById('login-email').value;
   const password = document.getElementById('login-password').value;
+  const btn = e.target.querySelector('button[type="submit"]');
 
-  try {
-    const res = await apiRequest('/api/auth/login', 'POST', { email, password });
-    currentToken = res.token;
-    currentUser = res.user;
-    localStorage.setItem('mech_token', currentToken);
-    localStorage.setItem('mech_user', JSON.stringify(currentUser));
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/auth/login', 'POST', { email, password });
+      currentToken = res.token;
+      currentUser = res.user;
+      localStorage.setItem('mech_token', currentToken);
+      localStorage.setItem('mech_user', JSON.stringify(currentUser));
 
-    showAuthenticatedUI();
-    switchTab('dashboard');
-  } catch (err) {
-    alert(err.message);
-  }
+      showAuthenticatedUI();
+      switchTab('dashboard');
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 });
 
 document.getElementById('btn-logout')?.addEventListener('click', () => {
@@ -242,16 +278,19 @@ document.getElementById('form-register')?.addEventListener('submit', async (e) =
   const confirm_password = document.getElementById('reg-confirm-password').value;
   const shop_name = document.getElementById('reg-shop').value;
   const city = document.getElementById('reg-city').value;
+  const btn = e.target.querySelector('button[type="submit"]');
 
-  try {
-    const res = await apiRequest('/api/auth/register', 'POST', {
-      name, mobile, email, password, confirm_password, shop_name, city
-    });
-    closeRegisterModal();
-    alert(`Registration Submitted!\n${res.sub_message}`);
-  } catch (err) {
-    alert(err.message);
-  }
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/auth/register', 'POST', {
+        name, mobile, email, password, confirm_password, shop_name, city
+      });
+      closeRegisterModal();
+      alert(`Registration Submitted!\n${res.sub_message}`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 });
 
 // WARRANTY SYSTEM HANDLERS
@@ -318,29 +357,32 @@ document.getElementById('form-public-warranty-reg')?.addEventListener('submit', 
   const customer_mobile = document.getElementById('w-reg-mobile').value.trim();
   const purchase_date = document.getElementById('w-reg-date').value;
   const vehicle_number = document.getElementById('w-reg-vehicle').value.trim();
+  const btn = e.target.querySelector('button[type="submit"]');
 
-  try {
-    const res = await apiRequest('/api/warranty/register', 'POST', {
-      battery_code, customer_name, customer_mobile, purchase_date, vehicle_number
-    });
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/warranty/register', 'POST', {
+        battery_code, customer_name, customer_mobile, purchase_date, vehicle_number
+      });
 
-    const resCard = document.getElementById('w-reg-success-card');
-    resCard.style.display = 'block';
-    resCard.innerHTML = `
-      <div style="background:var(--bg-card-elevated); border:1px solid var(--status-active-border); border-radius:12px; padding:16px; margin-top:16px;">
-        <strong style="color:var(--status-active-text); font-size:1.15rem;">✓ WARRANTY REGISTERED</strong>
-        <div style="font-size:0.9rem; margin-top:8px;"><strong>Serial Code:</strong> ${res.battery_code}</div>
-        <div style="font-size:0.9rem;"><strong>Purchase Date:</strong> ${res.purchase_date}</div>
-        <div style="font-size:0.9rem;"><strong>Warranty Valid Until:</strong> ${res.expiry_date}</div>
-        <div style="font-size:0.9rem;"><strong>Registered Timestamp:</strong> ${res.registered_at}</div>
-        <div style="font-size:0.9rem;"><strong>Warranty Status:</strong> <span class="badge badge-active">${res.status}</span></div>
-      </div>
-    `;
+      const resCard = document.getElementById('w-reg-success-card');
+      resCard.style.display = 'block';
+      resCard.innerHTML = `
+        <div style="background:var(--bg-card-elevated); border:1px solid var(--status-active-border); border-radius:12px; padding:16px; margin-top:16px;">
+          <strong style="color:var(--status-active-text); font-size:1.15rem;">✓ WARRANTY REGISTERED</strong>
+          <div style="font-size:0.9rem; margin-top:8px;"><strong>Serial Code:</strong> ${res.battery_code}</div>
+          <div style="font-size:0.9rem;"><strong>Purchase Date:</strong> ${res.purchase_date}</div>
+          <div style="font-size:0.9rem;"><strong>Warranty Valid Until:</strong> ${res.expiry_date}</div>
+          <div style="font-size:0.9rem;"><strong>Registered Timestamp:</strong> ${res.registered_at}</div>
+          <div style="font-size:0.9rem;"><strong>Warranty Status:</strong> <span class="badge badge-active">${res.status}</span></div>
+        </div>
+      `;
 
-    document.getElementById('form-public-warranty-reg').reset();
-  } catch (err) {
-    alert(err.message);
-  }
+      document.getElementById('form-public-warranty-reg').reset();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 });
 
 async function checkPublicWarranty() {
@@ -375,7 +417,7 @@ async function checkPublicWarranty() {
   }
 }
 
-// DASHBOARD STATS & ADMIN NOTIFICATIONS
+// DASHBOARD STATS
 async function loadDashboardStats() {
   try {
     const data = await apiRequest('/api/reports/dashboard?preset=today');
@@ -456,6 +498,48 @@ async function onBillProductSelected() {
     badge.textContent = '';
   }
 }
+
+// SELLER OTHER PRODUCT MODAL HANDLERS (Sections 10, 11, 12)
+function openOtherProductModal() { document.getElementById('modal-other-product').style.display = 'flex'; }
+function closeOtherProductModal() { document.getElementById('modal-other-product').style.display = 'none'; }
+
+document.getElementById('form-other-product')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('other-prod-name').value.trim();
+  const price = parseFloat(document.getElementById('other-prod-price').value || '0');
+  const qty = parseInt(document.getElementById('other-prod-qty').value || '1');
+  const gst = parseFloat(document.getElementById('other-prod-gst').value || '18');
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/products/custom', 'POST', {
+        name, selling_price: price, gst_rate: gst
+      });
+      closeOtherProductModal();
+      alert(res.message);
+
+      const p = res.product;
+      const line_base = (p.selling_price * qty);
+      const line_gst = line_base * (p.gst_rate / 100.0);
+      
+      const item = {
+        product_id: p.id,
+        product_label: `${p.name} (Custom)`,
+        unit_price: p.selling_price,
+        quantity: qty,
+        battery_code: null,
+        discount: 0,
+        gst_rate: p.gst_rate,
+        total: line_base + line_gst
+      };
+
+      currentInvoiceDraft.items.push(item);
+      renderBillItemsTable();
+      initNewBillWorkflow();
+    } catch (err) { alert(err.message); }
+  });
+});
 
 function addBillItem() {
   const prodSelect = document.getElementById('bill-product-select');
@@ -635,6 +719,145 @@ function shareInvoiceWhatsApp() {
   window.open(url, '_blank');
 }
 
+// CUSTOMER MANAGEMENT (EDIT, ARCHIVE, LEDGER - Sections 5, 6, 7, 17)
+let activeCustomersList = [];
+
+async function loadCustomersList() {
+  const container = document.getElementById('customers-list-container');
+  container.innerHTML = 'Loading customers...';
+  try {
+    activeCustomersList = await apiRequest('/api/customers');
+    renderFilteredCustomers(activeCustomersList);
+  } catch (err) { container.innerHTML = `<div class="card">${err.message}</div>`; }
+}
+
+function filterCustomersList() {
+  const q = (document.getElementById('customer-search-input')?.value || '').toLowerCase().trim();
+  if (!q) {
+    renderFilteredCustomers(activeCustomersList);
+    return;
+  }
+  const filtered = activeCustomersList.filter(c => 
+    c.name.toLowerCase().includes(q) || 
+    c.mobile.includes(q) || 
+    (c.shop_name && c.shop_name.toLowerCase().includes(q))
+  );
+  renderFilteredCustomers(filtered);
+}
+
+function renderFilteredCustomers(list) {
+  const container = document.getElementById('customers-list-container');
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div class="card" style="text-align:center; padding:24px;">
+        <div style="font-size:1.1rem; font-weight:700; margin-bottom:8px;">No customers found.</div>
+        <button class="btn btn-primary btn-sm" onclick="openCustomerModal()">+ Add Customer</button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = list.map(c => `
+    <div class="card" style="margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:start;">
+        <div>
+          <strong style="font-size:1.05rem;">${c.name}</strong>
+          <div style="font-size:0.85rem; color:var(--text-muted);">${c.mobile} | ${c.shop_name || 'Individual'}</div>
+          ${c.city ? `<div style="font-size:0.8rem; color:var(--text-muted);">City: ${c.city}</div>` : ''}
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:0.8rem; color:var(--text-muted);">Outstanding</div>
+          <strong style="color:${c.outstanding_balance > 0 ? 'red' : 'green'}; font-size:1.05rem;">₹${c.outstanding_balance}</strong>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:6px; margin-top:12px; border-top:1px solid var(--border-color); padding-top:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="openCustomerLedgerModal(${c.id})" style="flex:1;">📜 Khatabook</button>
+        <button class="btn btn-secondary btn-sm" onclick="openEditCustomerModal(${c.id})" style="flex:1;">✏️ Edit</button>
+        <button class="btn btn-secondary btn-sm" onclick="archiveCustomer(${c.id})" style="flex:1; color:var(--status-rejected-text);">📦 Archive</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openEditCustomerModal(custId) {
+  const cust = activeCustomersList.find(c => c.id === custId);
+  if (!cust) return;
+  document.getElementById('edit-cust-id').value = cust.id;
+  document.getElementById('edit-cust-name').value = cust.name;
+  document.getElementById('edit-cust-mobile').value = cust.mobile;
+  document.getElementById('edit-cust-shop').value = cust.shop_name || '';
+  document.getElementById('edit-cust-city').value = cust.city || '';
+  document.getElementById('edit-cust-address').value = cust.address || '';
+  document.getElementById('modal-edit-customer').style.display = 'flex';
+}
+function closeEditCustomerModal() { document.getElementById('modal-edit-customer').style.display = 'none'; }
+
+document.getElementById('form-edit-customer')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const cId = document.getElementById('edit-cust-id').value;
+  const name = document.getElementById('edit-cust-name').value;
+  const mobile = document.getElementById('edit-cust-mobile').value;
+  const shop_name = document.getElementById('edit-cust-shop').value;
+  const city = document.getElementById('edit-cust-city').value;
+  const address = document.getElementById('edit-cust-address').value;
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest(`/api/customers/${cId}`, 'PUT', { name, mobile, shop_name, city, address });
+      closeEditCustomerModal();
+      alert(res.message);
+      loadCustomersList();
+    } catch (err) { alert(err.message); }
+  });
+});
+
+async function archiveCustomer(custId) {
+  if (!confirm('Are you sure you want to archive this customer?')) return;
+  try {
+    const res = await apiRequest(`/api/customers/${custId}`, 'DELETE');
+    alert(res.message);
+    loadCustomersList();
+  } catch (err) { alert(err.message); }
+}
+
+async function openCustomerLedgerModal(custId) {
+  const container = document.getElementById('customer-ledger-body');
+  container.innerHTML = 'Loading statement...';
+  document.getElementById('modal-customer-ledger').style.display = 'flex';
+
+  try {
+    const data = await apiRequest(`/api/customers/${custId}/ledger`);
+    const c = data.customer;
+    let txHtml = data.transactions.map(t => `
+      <tr>
+        <td>${t.tx_date}</td>
+        <td>${t.type === 'PURCHASE' ? `Bill #${t.invoice_number}` : `Payment (${t.status})`}</td>
+        <td style="color:${t.type==='PURCHASE'?'red':'green'}; font-weight:700;">${t.type === 'PURCHASE' ? `+₹${t.amount}` : `-₹${t.amount}`}</td>
+        <td>₹${t.running_balance}</td>
+      </tr>
+    `).join('');
+
+    container.innerHTML = `
+      <div style="margin-bottom:12px;">
+        <strong style="font-size:1.1rem; color:var(--mech-orange);">${c.name}</strong> (${c.mobile})
+        <div>Shop: ${c.shop_name || 'Individual'}</div>
+        <div style="display:flex; justify-content:space-between; margin-top:8px; background:var(--bg-card-elevated); padding:8px 12px; border-radius:8px;">
+          <div>Total Billed: <strong>₹${data.total_billed}</strong></div>
+          <div>Total Paid: <strong style="color:green;">₹${data.total_paid}</strong></div>
+          <div>Outstanding: <strong style="color:red;">₹${data.outstanding_balance}</strong></div>
+        </div>
+      </div>
+      <table class="table" style="font-size:0.85rem;">
+        <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Balance</th></tr></thead>
+        <tbody>${txHtml || '<tr><td colspan="4" style="text-align:center;">No transactions yet.</td></tr>'}</tbody>
+      </table>
+    `;
+  } catch (err) { container.innerHTML = `<div style="color:red;">${err.message}</div>`; }
+}
+function closeCustomerLedgerModal() { document.getElementById('modal-customer-ledger').style.display = 'none'; }
+
 // ADMIN PARTNERS & SELLERS QUEUE
 function setSellerFilter(status) {
   activeSellerFilter = status;
@@ -787,7 +1010,7 @@ async function loadPaymentsList() {
   try {
     const list = await apiRequest('/api/payments');
     if (list.length === 0) {
-      container.innerHTML = '<div class="card">No payment transactions recorded yet.</div>';
+      container.innerHTML = '<div class="card" style="text-align:center; padding:24px;">No payment transactions recorded yet.</div>';
       return;
     }
 
@@ -829,17 +1052,20 @@ document.getElementById('form-payment')?.addEventListener('submit', async (e) =>
   const amount = parseFloat(document.getElementById('pay-amount').value);
   const payment_method = document.getElementById('pay-method').value;
   const reference_no = document.getElementById('pay-ref').value;
+  const btn = e.target.querySelector('button[type="submit"]');
 
-  try {
-    const res = await apiRequest('/api/payments', 'POST', { customer_id, amount, payment_method, reference_no });
-    closePaymentModal();
-    alert('✓ Payment recorded successfully!');
-    if (document.getElementById('view-payments').style.display !== 'none') {
-      loadPaymentsList();
-    } else {
-      loadDashboardStats();
-    }
-  } catch (err) { alert(err.message); }
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/payments', 'POST', { customer_id, amount, payment_method, reference_no });
+      closePaymentModal();
+      alert('✓ Payment recorded successfully!');
+      if (document.getElementById('view-payments').style.display !== 'none') {
+        loadPaymentsList();
+      } else {
+        loadDashboardStats();
+      }
+    } catch (err) { alert(err.message); }
+  });
 });
 
 // REWARDS & REFERRALS
@@ -890,23 +1116,31 @@ function closeRedeemModal() { document.getElementById('modal-redeem').style.disp
 document.getElementById('form-referral')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const mobile = document.getElementById('ref-mobile').value;
-  try {
-    const res = await apiRequest('/api/referrals', 'POST', { mobile });
-    closeReferralModal();
-    alert(res.message);
-    loadReferralsNetwork();
-  } catch (err) { alert(err.message); }
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/referrals', 'POST', { mobile });
+      closeReferralModal();
+      alert(res.message);
+      loadReferralsNetwork();
+    } catch (err) { alert(err.message); }
+  });
 });
 
 document.getElementById('form-redeem')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const points = parseFloat(document.getElementById('redeem-pts').value);
-  try {
-    const res = await apiRequest('/api/rewards/redeem', 'POST', { points });
-    closeRedeemModal();
-    alert(res.message);
-    loadRewardsSummary();
-  } catch (err) { alert(err.message); }
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/rewards/redeem', 'POST', { points });
+      closeRedeemModal();
+      alert(res.message);
+      loadRewardsSummary();
+    } catch (err) { alert(err.message); }
+  });
 });
 
 // ADMIN GLOBAL SEARCH
@@ -945,40 +1179,14 @@ async function executeAdminSearch() {
   } catch (err) { container.innerHTML = `<div style="color:red;">${err.message}</div>`; }
 }
 
-// LISTINGS
-async function loadCustomersList() {
-  const container = document.getElementById('customers-list-container');
-  container.innerHTML = 'Loading customers...';
-  try {
-    const list = await apiRequest('/api/customers');
-    if (list.length === 0) {
-      container.innerHTML = '<div class="card">No customers found. Click "+ Add Customer" to create one.</div>';
-      return;
-    }
-    container.innerHTML = list.map(c => `
-      <div class="card" style="margin-bottom:12px;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <strong style="font-size:1.05rem;">${c.name}</strong>
-            <div style="font-size:0.85rem; color:var(--text-muted);">${c.mobile} | ${c.shop_name || 'Individual'}</div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-size:0.8rem; color:var(--text-muted);">Outstanding</div>
-            <strong style="color:${c.outstanding_balance > 0 ? 'red' : 'green'}; font-size:1.05rem;">₹${c.outstanding_balance}</strong>
-          </div>
-        </div>
-      </div>
-    `).join('');
-  } catch (err) { container.innerHTML = err.message; }
-}
-
+// INVOICES & REPORTS LISTING
 async function loadInvoicesList() {
   const container = document.getElementById('invoices-list-container');
   container.innerHTML = 'Loading invoices...';
   try {
     const list = await apiRequest('/api/invoices');
     if (list.length === 0) {
-      container.innerHTML = '<div class="card">No invoices found.</div>';
+      container.innerHTML = '<div class="card" style="text-align:center; padding:24px;">No invoices recorded yet. Click + New Bill to create your first bill.</div>';
       return;
     }
     container.innerHTML = list.map(inv => `
@@ -1005,7 +1213,7 @@ async function loadReportsTree() {
   try {
     const tree = await apiRequest('/api/reports/hierarchical?preset=this_month');
     if (tree.length === 0) {
-      container.innerHTML = '<div class="card">No sales recorded for selected period.</div>';
+      container.innerHTML = '<div class="card" style="text-align:center; padding:24px;">No sales recorded for this period.</div>';
       return;
     }
     let html = '';
@@ -1029,7 +1237,7 @@ async function loadReportsTree() {
   } catch (err) { container.innerHTML = err.message; }
 }
 
-// CAMERA SCANNER HELPER
+// CAMERA SCANNER HELPER WITH AUDIO/HAPTIC FEEDBACK (Section 20)
 function startCameraScanner(mode = 'NEW_BILL') {
   activeScannerMode = mode;
   document.getElementById('modal-camera').style.display = 'flex';
@@ -1040,6 +1248,8 @@ function startCameraScanner(mode = 'NEW_BILL') {
       const video = document.getElementById('camera-video');
       video.srcObject = stream;
       video.play();
+
+      triggerAudioBeep();
     }).catch(err => alert('Camera permission required for QR scanning.'));
   }
 }
@@ -1063,17 +1273,20 @@ document.getElementById('form-customer')?.addEventListener('submit', async (e) =
   const mobile = document.getElementById('cust-mobile').value;
   const shop_name = document.getElementById('cust-shop').value;
   const city = document.getElementById('cust-city').value;
+  const btn = e.target.querySelector('button[type="submit"]');
 
-  try {
-    await apiRequest('/api/customers', 'POST', { name, mobile, shop_name, city });
-    closeCustomerModal();
-    alert('Customer added successfully!');
-    if (document.getElementById('view-new-invoice').style.display !== 'none') {
-      initNewBillWorkflow();
-    } else {
-      loadCustomersList();
-    }
-  } catch (err) { alert(err.message); }
+  await withLoadingState(btn, async () => {
+    try {
+      await apiRequest('/api/customers', 'POST', { name, mobile, shop_name, city });
+      closeCustomerModal();
+      alert('✓ Customer added successfully!');
+      if (document.getElementById('view-new-invoice').style.display !== 'none') {
+        initNewBillWorkflow();
+      } else {
+        loadCustomersList();
+      }
+    } catch (err) { alert(err.message); }
+  });
 });
 
 document.getElementById('form-product')?.addEventListener('submit', async (e) => {
@@ -1081,13 +1294,16 @@ document.getElementById('form-product')?.addEventListener('submit', async (e) =>
   const name = document.getElementById('prod-name').value;
   const model_code = document.getElementById('prod-code').value;
   const selling_price = parseFloat(document.getElementById('prod-price').value);
+  const btn = e.target.querySelector('button[type="submit"]');
 
-  try {
-    await apiRequest('/api/products', 'POST', { name, model_code, selling_price });
-    closeProductModal();
-    alert('Battery model added successfully!');
-    if (document.getElementById('view-new-invoice').style.display !== 'none') {
-      initNewBillWorkflow();
-    }
-  } catch (err) { alert(err.message); }
+  await withLoadingState(btn, async () => {
+    try {
+      await apiRequest('/api/products', 'POST', { name, model_code, selling_price });
+      closeProductModal();
+      alert('✓ Battery model added successfully!');
+      if (document.getElementById('view-new-invoice').style.display !== 'none') {
+        initNewBillWorkflow();
+      }
+    } catch (err) { alert(err.message); }
+  });
 });

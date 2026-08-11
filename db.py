@@ -99,6 +99,8 @@ def init_db():
     cust_cols = [row[1] for row in cursor.execute("PRAGMA table_info(customers)").fetchall()]
     if 'vehicle_number' not in cust_cols:
         cursor.execute("ALTER TABLE customers ADD COLUMN vehicle_number TEXT;")
+    if 'is_archived' not in cust_cols:
+        cursor.execute("ALTER TABLE customers ADD COLUMN is_archived INTEGER DEFAULT 0;")
 
     # 3. Products table (Battery master)
     cursor.execute("""
@@ -110,6 +112,7 @@ def init_db():
         selling_price REAL NOT NULL,
         gst_rate REAL DEFAULT 18.0,
         custom_partner_id INTEGER,
+        is_custom INTEGER DEFAULT 0,
         status TEXT DEFAULT 'ACTIVE',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -120,6 +123,8 @@ def init_db():
     prod_cols = [row[1] for row in cursor.execute("PRAGMA table_info(products)").fetchall()]
     if 'custom_partner_id' not in prod_cols:
         cursor.execute("ALTER TABLE products ADD COLUMN custom_partner_id INTEGER;")
+    if 'is_custom' not in prod_cols:
+        cursor.execute("ALTER TABLE products ADD COLUMN is_custom INTEGER DEFAULT 0;")
 
     # 4. Invoices header table
     cursor.execute("""
