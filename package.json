@@ -1,5 +1,5 @@
 {
-  "name": "mechshakti-sales-invoice-portal",
+  "name": "mechshakti-invoice",
   "version": "1.0.0",
   "description": "Mechshakti Sales & Invoice Portal PWA with strict data isolation and reporting",
   "main": "server.js",
