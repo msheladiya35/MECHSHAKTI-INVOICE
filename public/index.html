@@ -17,66 +17,68 @@
 </head>
 <body>
 
-  <!-- Top App Header with Official Mechshakti Logo -->
+  <!-- Clean Top App Header -->
   <header class="app-header">
-    <div class="brand">
+    <div class="brand" style="display: flex; align-items: center; gap: 10px;">
       <img src="/assets/logo.png" alt="Mechshakti" class="brand-logo-img">
+      <div>
+        <div style="font-weight: 800; font-size: 1rem; color: var(--mech-orange); line-height: 1.1; letter-spacing: 0.05em;">MECHSHAKTI</div>
+        <div id="header-active-tab-title" style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">Home Dashboard</div>
+      </div>
     </div>
     
-    <div class="header-actions">
-      <!-- Secondary Navigation Menu Toggle Button -->
-      <button id="btn-menu-toggle" class="btn btn-secondary btn-sm" onclick="toggleNavDrawer()" style="display: none;">
-        ☰ Menu
-      </button>
-
-      <!-- Light / Dark Theme Toggle Button -->
-      <button id="btn-theme-toggle" class="btn-theme-toggle" onclick="toggleAppTheme()" title="Toggle Light/Dark Theme">
-        <span id="theme-icon">🌙</span> <span id="theme-label">Dark</span>
-      </button>
-
-      <!-- Phone View Preview Toggle -->
-      <button id="btn-phone-preview" class="btn btn-secondary btn-sm" onclick="togglePhoneSimulation()" title="Toggle Phone Inspector Mode">
-        📱 Phone View
-      </button>
-
-      <!-- Install PWA App Button -->
-      <button id="btn-install-pwa" class="btn btn-primary btn-sm" style="display: none;" onclick="triggerPWAInstall()">
-        📲 Install App
-      </button>
-
-      <!-- Online / Offline Status Indicator -->
-      <div id="network-status" class="status-pill">
-        <span class="status-dot"></span>
-        <span id="status-text">Online</span>
-      </div>
-
+    <div class="header-actions" style="display: flex; align-items: center; gap: 8px;">
       <!-- Admin Pending Partner Notification Badge -->
       <button id="admin-pending-badge" class="badge badge-pending" style="display: none; cursor: pointer;" onclick="switchTab('sellers'); setSellerFilter('PENDING_APPROVAL');">
-        Partner Approvals <span id="admin-pending-count">[ 0 Pending ]</span>
+        Approvals <span id="admin-pending-count">[ 0 ]</span>
       </button>
-      
-      <!-- User profile badge -->
-      <span id="user-display" class="user-badge" style="display: none;"></span>
-      
-      <button id="btn-logout" class="btn btn-secondary btn-sm" style="display: none;">Logout</button>
+
+      <!-- Menu Button on the Right -->
+      <button id="btn-menu-toggle" class="btn btn-secondary btn-sm" onclick="toggleNavDrawer()" style="display: none; font-weight: 700;">
+        ☰ Menu
+      </button>
     </div>
   </header>
 
   <!-- Secondary Navigation Slide-Out Drawer -->
   <div id="nav-drawer" class="nav-drawer" style="display: none;">
-    <div class="nav-drawer-header">
-      <strong style="color: var(--mech-orange);">MECHSHAKTI ECOSYSTEM</strong>
-      <button class="btn btn-sm btn-secondary" onclick="toggleNavDrawer()">✕ Close</button>
+    <div class="nav-drawer-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 14px;">
+      <div>
+        <div id="user-display" style="font-weight: 700; color: var(--text-main); font-size: 0.95rem;"></div>
+        <div id="drawer-network-status" style="font-size: 0.75rem; color: var(--status-active-text); margin-top: 2px;">🟢 Online</div>
+      </div>
+      <button class="btn btn-sm btn-secondary" onclick="toggleNavDrawer()">✕</button>
     </div>
+
+    <!-- Quick Utilities inside Drawer -->
+    <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+      <button id="btn-theme-toggle" class="btn btn-secondary btn-sm" onclick="toggleAppTheme()" style="flex: 1;">
+        <span id="theme-icon">🌙</span> <span id="theme-label">Dark</span>
+      </button>
+      <button id="btn-phone-preview" class="btn btn-secondary btn-sm" onclick="togglePhoneSimulation()" style="flex: 1;">
+        📱 Phone View
+      </button>
+    </div>
+
     <div class="nav-drawer-links">
       <button onclick="switchTab('dashboard'); toggleNavDrawer();">🏠 Home Dashboard</button>
+      <button onclick="switchTab('customers'); toggleNavDrawer();">👥 Customers Directory</button>
+      <button onclick="switchTab('new-invoice'); toggleNavDrawer();">⚡ New Battery Bill</button>
+      <button onclick="switchTab('invoices'); toggleNavDrawer();">🧾 Invoices & Bills</button>
       <button onclick="switchTab('payments'); toggleNavDrawer();">💳 Payments Ledger</button>
-      <button onclick="switchTab('warranty'); toggleNavDrawer();">🛡️ Battery Warranty</button>
+      <button onclick="switchTab('reports'); toggleNavDrawer();">📊 Sales & Hierarchy Reports</button>
+      <button onclick="switchTab('warranty'); toggleNavDrawer();">🛡️ Battery Warranty Portal</button>
       <button onclick="switchTab('rewards'); toggleNavDrawer();">🎁 Referral & Rewards</button>
       <button onclick="switchTab('profile'); toggleNavDrawer();">👤 Profile & UPI Settings</button>
       <button id="drawer-admin-sellers-btn" onclick="switchTab('sellers'); toggleNavDrawer();" style="display: none;">📋 Partner Approvals & List</button>
       <button id="drawer-admin-warranties-btn" onclick="switchTab('admin-warranties'); toggleNavDrawer();" style="display: none;">🛡️ Admin Warranty Queue</button>
       <button id="drawer-admin-search-btn" onclick="switchTab('admin-search'); toggleNavDrawer();" style="display: none;">🔍 Admin Global Search</button>
+    </div>
+
+    <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border-color);">
+      <button id="btn-logout" class="btn btn-secondary btn-block" style="color: var(--status-rejected-text); font-weight: 700;">
+        🚪 Sign Out / Logout
+      </button>
     </div>
   </div>
 
@@ -395,7 +397,7 @@
       </div>
     </section>
 
-    <!-- 9. PROFILE VIEW (Live Account Details & UPI Settings) -->
+    <!-- 9. PROFILE VIEW -->
     <section id="view-profile" class="view" style="display: none;">
       <div class="card" style="max-width: 500px; margin: 0 auto;">
         <h2 style="color: var(--mech-orange); margin-bottom: 16px;">👤 Account Profile & Settings</h2>

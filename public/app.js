@@ -15,6 +15,21 @@ let activeScannerMode = 'NEW_BILL';
 let cameraStream = null;
 let activeSellerFilter = 'PENDING_APPROVAL';
 
+const tabTitlesMap = {
+  'dashboard': 'Home Dashboard',
+  'customers': 'Customers Directory',
+  'new-invoice': 'New Battery Bill',
+  'invoices': 'Invoices & Bills',
+  'payments': 'Payments Ledger',
+  'reports': 'Sales & Hierarchy Reports',
+  'warranty': 'Battery Warranty Portal',
+  'rewards': 'Referral & Rewards',
+  'profile': 'Account Profile & Settings',
+  'sellers': 'Partner Approvals & List',
+  'admin-warranties': 'Admin Warranty Queue',
+  'admin-search': 'Admin Global Search'
+};
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
   applyTheme(currentTheme);
@@ -36,8 +51,10 @@ function applyTheme(theme) {
   currentTheme = theme;
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('mech_theme', theme);
-  document.getElementById('theme-icon').textContent = theme === 'dark' ? '🌙' : '☀️';
-  document.getElementById('theme-label').textContent = theme === 'dark' ? 'Dark' : 'Light';
+  const icon = document.getElementById('theme-icon');
+  const label = document.getElementById('theme-label');
+  if (icon) icon.textContent = theme === 'dark' ? '🌙' : '☀️';
+  if (label) label.textContent = theme === 'dark' ? 'Dark' : 'Light';
 }
 
 function toggleAppTheme() {
@@ -51,14 +68,15 @@ function toggleNavDrawer() {
 
 function initAppStatus() {
   const updateOnlineStatus = () => {
-    const statusText = document.getElementById('status-text');
-    const netStatus = document.getElementById('network-status');
-    if (navigator.onLine) {
-      statusText.textContent = 'Online';
-      netStatus.className = 'status-pill';
-    } else {
-      statusText.textContent = 'Offline';
-      netStatus.className = 'status-pill offline';
+    const netStatus = document.getElementById('drawer-network-status');
+    if (netStatus) {
+      if (navigator.onLine) {
+        netStatus.textContent = '🟢 Online';
+        netStatus.style.color = 'var(--status-active-text)';
+      } else {
+        netStatus.textContent = '🔴 Offline';
+        netStatus.style.color = 'var(--status-rejected-text)';
+      }
     }
   };
   window.addEventListener('online', updateOnlineStatus);
@@ -67,10 +85,14 @@ function initAppStatus() {
 }
 
 function showAuthenticatedUI() {
-  document.getElementById('user-display').style.display = 'inline-block';
-  document.getElementById('user-display').textContent = `${currentUser.name} (${currentUser.role})`;
-  document.getElementById('btn-logout').style.display = 'inline-block';
-  document.getElementById('btn-menu-toggle').style.display = 'inline-block';
+  const userDisp = document.getElementById('user-display');
+  if (userDisp) {
+    userDisp.textContent = `${currentUser.name} (${currentUser.role})`;
+  }
+  
+  const menuBtn = document.getElementById('btn-menu-toggle');
+  if (menuBtn) menuBtn.style.display = 'inline-block';
+
   document.querySelector('.bottom-nav').style.display = 'flex';
 
   if (currentUser.role === 'ADMIN') {
@@ -85,17 +107,22 @@ function showAuthenticatedUI() {
 }
 
 function showUnauthenticatedUI() {
-  document.getElementById('user-display').style.display = 'none';
-  document.getElementById('btn-logout').style.display = 'none';
-  document.getElementById('btn-menu-toggle').style.display = 'none';
+  const menuBtn = document.getElementById('btn-menu-toggle');
+  if (menuBtn) menuBtn.style.display = 'none';
   document.querySelector('.bottom-nav').style.display = 'none';
   showView('view-login');
 }
 
 function switchTab(tabId) {
-  if (!currentToken && tabId !== 'login') {
+  if (!currentToken && tabId !== 'login' && tabId !== 'warranty') {
     showUnauthenticatedUI();
     return;
+  }
+
+  // Update header sub-heading title
+  const subTitle = document.getElementById('header-active-tab-title');
+  if (subTitle && tabTitlesMap[tabId]) {
+    subTitle.textContent = tabTitlesMap[tabId];
   }
 
   document.querySelectorAll('.bottom-nav .nav-item').forEach(el => {
@@ -124,6 +151,9 @@ function switchTab(tabId) {
   } else if (tabId === 'reports') {
     showView('view-reports');
     loadReportsTree();
+  } else if (tabId === 'warranty') {
+    showView('view-public-warranty');
+    setWarrantySubTab('REG');
   } else if (tabId === 'rewards') {
     showView('view-rewards');
     loadRewardsSummary();
@@ -196,6 +226,7 @@ document.getElementById('btn-logout')?.addEventListener('click', () => {
   currentUser = null;
   localStorage.removeItem('mech_token');
   localStorage.removeItem('mech_user');
+  toggleNavDrawer();
   showUnauthenticatedUI();
 });
 
@@ -355,11 +386,15 @@ async function loadDashboardStats() {
 
     if (currentUser.role === 'ADMIN' && data.pending_partners_count > 0) {
       document.getElementById('dash-admin-approval-banner').style.display = 'flex';
-      document.getElementById('admin-pending-badge').style.display = 'inline-block';
-      document.getElementById('admin-pending-count').textContent = `[ ${data.pending_partners_count} Pending ]`;
+      const badge = document.getElementById('admin-pending-badge');
+      if (badge) {
+        badge.style.display = 'inline-block';
+        document.getElementById('admin-pending-count').textContent = `[ ${data.pending_partners_count} ]`;
+      }
     } else {
       document.getElementById('dash-admin-approval-banner').style.display = 'none';
-      document.getElementById('admin-pending-badge').style.display = 'none';
+      const badge = document.getElementById('admin-pending-badge');
+      if (badge) badge.style.display = 'none';
     }
   } catch (err) {
     console.log('Error loading dashboard stats:', err);
@@ -600,7 +635,7 @@ function shareInvoiceWhatsApp() {
   window.open(url, '_blank');
 }
 
-// ADMIN PARTNERS & SELLERS QUEUE (Section 4 & 5)
+// ADMIN PARTNERS & SELLERS QUEUE
 function setSellerFilter(status) {
   activeSellerFilter = status;
   loadAdminSellersList();
@@ -665,7 +700,7 @@ async function updatePartnerStatus(sellerId, action) {
   } catch (err) { alert(err.message); }
 }
 
-// ADMIN WARRANTY QUEUE (Section 7)
+// ADMIN WARRANTY QUEUE
 async function loadAdminWarrantiesQueue() {
   const container = document.getElementById('admin-warranties-list-container');
   if (!container) return;
@@ -721,7 +756,7 @@ async function adminCancelWarranty(wId) {
   } catch (err) { alert(err.message); }
 }
 
-// PROFILE DETAILS (Live Real Account Data - Zero Dummy Values)
+// PROFILE DETAILS
 async function loadProfileDetails() {
   document.getElementById('prof-display-name').textContent = currentUser.name;
   document.getElementById('prof-display-email').textContent = currentUser.email;
