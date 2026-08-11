@@ -630,6 +630,15 @@ function onBillPaymentMethodChanged() {
   if (method === 'UPI') {
     upiCard.style.display = 'block';
     document.getElementById('seller-upi-id-display').textContent = currentUser.upi_id ? `UPI ID: ${currentUser.upi_id}` : 'Seller UPI ID: mechshakti@upi';
+
+    const qrWrapper = document.getElementById('seller-qr-img-wrapper');
+    const qrImg = document.getElementById('seller-bill-qr-img');
+    if (currentUser.upi_qr_url && qrWrapper && qrImg) {
+      qrImg.src = currentUser.upi_qr_url;
+      qrWrapper.style.display = 'block';
+    } else if (qrWrapper) {
+      qrWrapper.style.display = 'none';
+    }
   } else {
     upiCard.style.display = 'none';
   }
@@ -705,10 +714,21 @@ async function openInvoicePreviewModal(invId) {
           <tbody>${itemsHtml}</tbody>
         </table>
 
-        <div style="text-align:right; font-size:0.95rem;">
-          <div>Grand Total: <strong>₹${inv.grand_total}</strong></div>
-          <div>Paid: <strong style="color:green;">₹${inv.paid_amount}</strong></div>
-          <div>Outstanding: <strong style="color:red;">₹${inv.outstanding}</strong></div>
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:16px; border-top:1px solid var(--border-color); padding-top:12px;">
+          <div>
+            ${inv.seller_upi_qr ? `
+              <div style="text-align:center;">
+                <div style="font-size:0.75rem; font-weight:700; color:var(--mech-orange); margin-bottom:4px;">SCAN TO PAY SELLER</div>
+                <img src="${inv.seller_upi_qr}" style="max-width:130px; max-height:130px; border-radius:6px; border:1px solid var(--mech-orange); padding:2px; background:#fff;" alt="Seller Payment QR">
+                ${inv.seller_upi ? `<div style="font-size:0.75rem; font-family:monospace; margin-top:2px;">${inv.seller_upi}</div>` : ''}
+              </div>
+            ` : (inv.seller_upi ? `<div style="font-size:0.8rem;"><strong>Seller UPI:</strong> ${inv.seller_upi}</div>` : '')}
+          </div>
+          <div style="text-align:right; font-size:0.95rem;">
+            <div>Grand Total: <strong>₹${inv.grand_total}</strong></div>
+            <div>Paid: <strong style="color:green;">₹${inv.paid_amount}</strong></div>
+            <div>Outstanding: <strong style="color:red;">₹${inv.outstanding}</strong></div>
+          </div>
         </div>
       </div>
     `;
@@ -992,7 +1012,26 @@ async function adminCancelWarranty(wId) {
   } catch (err) { alert(err.message); }
 }
 
-// PROFILE DETAILS
+// PROFILE DETAILS & UPI QR CODE UPLOAD
+let uploadedQRBase64 = null;
+
+function previewUploadedUPIQR(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    uploadedQRBase64 = e.target.result;
+    const img = document.getElementById('prof-qr-preview-img');
+    const container = document.getElementById('prof-qr-preview-container');
+    if (img && container) {
+      img.src = uploadedQRBase64;
+      container.style.display = 'block';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
 async function loadProfileDetails() {
   document.getElementById('prof-display-name').textContent = currentUser.name;
   document.getElementById('prof-display-email').textContent = currentUser.email;
@@ -1002,15 +1041,29 @@ async function loadProfileDetails() {
   document.getElementById('prof-shop').value = currentUser.shop_name || 'N/A';
   document.getElementById('prof-city').value = currentUser.city || 'N/A';
   document.getElementById('prof-upi-id').value = currentUser.upi_id || '';
+
+  if (currentUser.upi_qr_url) {
+    uploadedQRBase64 = currentUser.upi_qr_url;
+    const img = document.getElementById('prof-qr-preview-img');
+    const container = document.getElementById('prof-qr-preview-container');
+    if (img && container) {
+      img.src = currentUser.upi_qr_url;
+      container.style.display = 'block';
+    }
+  }
 }
 
 async function saveProfileUPI() {
   const upi = document.getElementById('prof-upi-id').value.trim();
   try {
-    await apiRequest('/api/profile/upi', 'POST', { upi_id: upi });
+    const res = await apiRequest('/api/profile/upi', 'POST', {
+      upi_id: upi,
+      upi_qr_url: uploadedQRBase64
+    });
     currentUser.upi_id = upi;
+    currentUser.upi_qr_url = uploadedQRBase64;
     localStorage.setItem('mech_user', JSON.stringify(currentUser));
-    alert('✓ UPI details saved successfully!');
+    alert('✓ Seller UPI ID and Payment QR Code saved successfully!');
   } catch (err) { alert(err.message); }
 }
 

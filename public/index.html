@@ -342,9 +342,12 @@
         </div>
 
         <div id="seller-upi-qr-card" style="display: none; text-align: center; background: var(--bg-card-elevated); border: 1px dashed var(--mech-orange); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
-          <strong style="color: var(--mech-orange);">[ SCAN TO PAY ]</strong>
-          <div id="seller-upi-id-display" style="font-weight: 700; margin: 6px 0;"></div>
-          <div style="font-size: 0.8rem; color: var(--text-muted);">Confirm received payment before finalizing invoice.</div>
+          <strong style="color: var(--mech-orange); font-size: 1.05rem;">📲 SCAN SELLER QR TO PAY</strong>
+          <div id="seller-qr-img-wrapper" style="margin: 10px 0; display: none;">
+            <img id="seller-bill-qr-img" style="max-width: 220px; max-height: 220px; border-radius: 10px; border: 2px solid var(--mech-orange); padding: 6px; background: #fff;" alt="Seller Payment QR">
+          </div>
+          <div id="seller-upi-id-display" style="font-weight: 700; margin: 6px 0; font-size: 1.05rem; color: var(--text-main);"></div>
+          <div style="font-size: 0.8rem; color: var(--text-muted);">Customer can scan this QR code directly to make instant payment for this bill.</div>
         </div>
 
         <button type="button" class="btn btn-primary btn-block" onclick="submitGenerateInvoice()" style="font-size: 1.05rem; padding: 14px;">

@@ -703,7 +703,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     inv = cursor.execute("""
                         SELECT i.*, c.name as customer_name, c.shop_name as customer_shop, c.mobile as customer_mobile,
                                c.address as customer_address, c.city as customer_city, c.gst_number as customer_gst,
-                               u.name as seller_name, u.shop_name as seller_shop, u.phone as seller_phone, u.upi_id as seller_upi
+                               u.name as seller_name, u.shop_name as seller_shop, u.phone as seller_phone, u.upi_id as seller_upi, u.upi_qr_url as seller_upi_qr
                         FROM invoices i
                         JOIN customers c ON c.id = i.customer_id
                         JOIN users u ON u.id = i.partner_id
@@ -1069,12 +1069,13 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                 return self.send_json({"message": f"Serial '{code}' added to battery master and approved."})
 
-            # UPDATE SELLER PROFILE UPI DETAILS
+            # UPDATE SELLER PROFILE UPI DETAILS & QR CODE IMAGE
             elif path == "/api/profile/upi":
                 upi_id = body.get("upi_id", "").strip()
-                cursor.execute("UPDATE users SET upi_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (upi_id, user["id"]))
+                upi_qr_url = body.get("upi_qr_url", "").strip()
+                cursor.execute("UPDATE users SET upi_id = ?, upi_qr_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (upi_id, upi_qr_url, user["id"]))
                 conn.commit()
-                return self.send_json({"message": "UPI details updated successfully.", "upi_id": upi_id})
+                return self.send_json({"message": "UPI & Payment QR details updated successfully.", "upi_id": upi_id, "upi_qr_url": upi_qr_url})
 
             # REFERRAL CREATION
             elif path == "/api/referrals":
