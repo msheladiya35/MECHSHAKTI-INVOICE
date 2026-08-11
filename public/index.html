@@ -768,14 +768,23 @@
         <h3>📷 Battery QR Code Scanner</h3>
         <button class="btn-close" onclick="stopCameraScanner()">✕</button>
       </div>
+      
       <div style="position: relative; width: 100%; height: 260px; background: #000; overflow: hidden; border-radius: 8px;">
         <video id="camera-video" style="width: 100%; height: 100%; object-fit: cover;" playsinline></video>
+        <canvas id="camera-canvas" style="display: none;"></canvas>
+        <div style="position: absolute; top: 50%; left: 10%; right: 10%; height: 2px; background: #22c55e; box-shadow: 0 0 8px #22c55e;"></div>
       </div>
+
+      <div id="camera-scan-status" style="margin-top: 10px; font-size: 0.85rem; padding: 8px; border-radius: 6px; background: var(--bg-card-elevated); color: var(--mech-orange);">
+        🔍 Point camera at Mechshakti Battery QR code...
+      </div>
+
       <button class="btn btn-secondary btn-block" onclick="stopCameraScanner()" style="margin-top: 12px;">Close Scanner</button>
     </div>
   </div>
 
-  <!-- Application JS Script -->
+  <!-- JS QR Decoding Library & Application Script -->
+  <script src="/jsqr.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

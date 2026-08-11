@@ -1568,10 +1568,13 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
             conn.close()
 
 
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
 def run():
     init_db()
-    socketserver.TCPServer.allow_reuse_address = True
-    server = socketserver.TCPServer(("", PORT), MechshaktiRequestHandler)
+    server = ThreadedTCPServer(("", PORT), MechshaktiRequestHandler)
     print(f"Server started on http://localhost:{PORT}")
     try:
         server.serve_forever()

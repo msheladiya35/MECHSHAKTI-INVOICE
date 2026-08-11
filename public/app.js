@@ -1237,24 +1237,115 @@ async function loadReportsTree() {
   } catch (err) { container.innerHTML = err.message; }
 }
 
-// CAMERA SCANNER HELPER WITH AUDIO/HAPTIC FEEDBACK (Section 20)
+// CAMERA SCANNER HELPER WITH REAL-TIME DECODING & AUDIO/HAPTIC FEEDBACK (Section 20)
+let scanAnimationId = null;
+
 function startCameraScanner(mode = 'NEW_BILL') {
   activeScannerMode = mode;
   document.getElementById('modal-camera').style.display = 'flex';
 
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
-      cameraStream = stream;
-      const video = document.getElementById('camera-video');
-      video.srcObject = stream;
-      video.play();
+  const statusEl = document.getElementById('camera-scan-status');
+  if (statusEl) {
+    statusEl.style.background = 'var(--bg-card-elevated)';
+    statusEl.style.color = 'var(--mech-orange)';
+    statusEl.textContent = '🔍 Point camera at Mechshakti Battery QR code...';
+  }
 
-      triggerAudioBeep();
-    }).catch(err => alert('Camera permission required for QR scanning.'));
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (statusEl) {
+      statusEl.style.background = 'rgba(239, 68, 68, 0.18)';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = '✕ Camera access not supported by browser. Please type serial code manually.';
+    }
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
+    cameraStream = stream;
+    const video = document.getElementById('camera-video');
+    video.srcObject = stream;
+    video.setAttribute('playsinline', true);
+    video.play();
+
+    scanAnimationId = requestAnimationFrame(scanQRCodeFrame);
+  }).catch(err => {
+    if (statusEl) {
+      statusEl.style.background = 'rgba(239, 68, 68, 0.18)';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = `⚠ Camera Error: ${err.message || 'Permission denied. Please allow camera or type code.'}`;
+    }
+  });
+}
+
+function scanQRCodeFrame() {
+  const video = document.getElementById('camera-video');
+  const canvas = document.getElementById('camera-canvas');
+  if (!video || !canvas || !cameraStream) return;
+
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvas.height = video.videoHeight;
+    canvas.width = video.videoWidth;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    let code = null;
+    if (typeof jsQR !== 'undefined') {
+      const qr = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: 'dontInvert'
+      });
+      if (qr && qr.data) {
+        code = qr.data;
+      }
+    }
+
+    if (code) {
+      onQRCodeSuccessfullyScanned(code);
+      return;
+    }
+  }
+
+  if (cameraStream) {
+    scanAnimationId = requestAnimationFrame(scanQRCodeFrame);
+  }
+}
+
+function onQRCodeSuccessfullyScanned(scannedCode) {
+  triggerAudioBeep();
+
+  const normCode = scannedCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  stopCameraScanner();
+
+  if (activeScannerMode === 'NEW_BILL') {
+    document.getElementById('bill-scanned-card').style.display = 'block';
+    document.getElementById('bill-scanned-code-text').textContent = normCode;
+
+    const prodSelect = document.getElementById('bill-product-select');
+    if (prodSelect) {
+      for (let i = 0; i < prodSelect.options.length; i++) {
+        const text = prodSelect.options[i].text;
+        const prefix = text.split(' - ')[0].trim();
+        if (prefix && normCode.startsWith(prefix)) {
+          prodSelect.selectedIndex = i;
+          onBillProductSelected();
+          break;
+        }
+      }
+    }
+  } else if (activeScannerMode === 'WARRANTY_REG') {
+    const input = document.getElementById('w-reg-code');
+    if (input) {
+      input.value = normCode;
+      validateWarrantySerialBeforeSubmit();
+    }
   }
 }
 
 function stopCameraScanner() {
+  if (scanAnimationId) {
+    cancelAnimationFrame(scanAnimationId);
+    scanAnimationId = null;
+  }
   if (cameraStream) {
     cameraStream.getTracks().forEach(t => t.stop());
     cameraStream = null;
