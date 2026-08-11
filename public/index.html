@@ -24,6 +24,11 @@
     </div>
     
     <div class="header-actions">
+      <!-- Secondary Navigation Menu Toggle Button -->
+      <button id="btn-menu-toggle" class="btn btn-secondary btn-sm" onclick="toggleNavDrawer()" style="display: none;">
+        ☰ Menu
+      </button>
+
       <!-- Light / Dark Theme Toggle Button -->
       <button id="btn-theme-toggle" class="btn-theme-toggle" onclick="toggleAppTheme()" title="Toggle Light/Dark Theme">
         <span id="theme-icon">🌙</span> <span id="theme-label">Dark</span>
@@ -46,7 +51,7 @@
       </div>
 
       <!-- Admin Pending Partner Notification Badge -->
-      <button id="admin-pending-badge" class="badge badge-pending" style="display: none; cursor: pointer;" onclick="switchTab('sellers')">
+      <button id="admin-pending-badge" class="badge badge-pending" style="display: none; cursor: pointer;" onclick="switchTab('sellers'); setSellerFilter('PENDING_APPROVAL');">
         Partner Approvals <span id="admin-pending-count">[ 0 Pending ]</span>
       </button>
       
@@ -57,14 +62,31 @@
     </div>
   </header>
 
+  <!-- Secondary Navigation Slide-Out Drawer -->
+  <div id="nav-drawer" class="nav-drawer" style="display: none;">
+    <div class="nav-drawer-header">
+      <strong style="color: var(--mech-orange);">MECHSHAKTI ECOSYSTEM</strong>
+      <button class="btn btn-sm btn-secondary" onclick="toggleNavDrawer()">✕ Close</button>
+    </div>
+    <div class="nav-drawer-links">
+      <button onclick="switchTab('dashboard'); toggleNavDrawer();">🏠 Home Dashboard</button>
+      <button onclick="switchTab('payments'); toggleNavDrawer();">💳 Payments Ledger</button>
+      <button onclick="switchTab('warranty'); toggleNavDrawer();">🛡️ Battery Warranty</button>
+      <button onclick="switchTab('rewards'); toggleNavDrawer();">🎁 Referral & Rewards</button>
+      <button onclick="switchTab('profile'); toggleNavDrawer();">👤 Profile & UPI Settings</button>
+      <button id="drawer-admin-sellers-btn" onclick="switchTab('sellers'); toggleNavDrawer();" style="display: none;">📋 Partner Approvals & List</button>
+      <button id="drawer-admin-warranties-btn" onclick="switchTab('admin-warranties'); toggleNavDrawer();" style="display: none;">🛡️ Admin Warranty Queue</button>
+      <button id="drawer-admin-search-btn" onclick="switchTab('admin-search'); toggleNavDrawer();" style="display: none;">🔍 Admin Global Search</button>
+    </div>
+  </div>
+
   <!-- Main Container -->
   <main class="app-container">
 
-    <!-- 1. LOGIN VIEW (With Registration Link) -->
+    <!-- 1. LOGIN VIEW -->
     <section id="view-login" class="view">
       <div style="max-width: 420px; margin: 30px auto;" class="card">
         
-        <!-- Prominent Official Mechshakti Logo Showcase -->
         <div style="text-align: center; margin-bottom: 20px;">
           <img src="/assets/logo.png" alt="Mechshakti Logo" style="max-width: 220px; height: auto; margin-bottom: 12px;">
           <div style="font-size: 0.85rem; font-weight: 800; color: var(--mech-red); letter-spacing: 0.1em; text-transform: uppercase;">
@@ -91,14 +113,89 @@
           </button>
         </form>
 
-        <!-- Partner Self Registration Section -->
         <div style="text-align: center; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border-color);">
           <div style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 10px;">New Partner? Register Here</div>
-          <button type="button" class="btn btn-secondary btn-block" onclick="openRegisterModal()" style="font-size: 0.95rem;">
+          <button type="button" class="btn btn-secondary btn-block" onclick="openRegisterModal()" style="font-size: 0.95rem; margin-bottom: 12px;">
             CREATE PARTNER ACCOUNT
           </button>
+
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="showPublicWarrantyView('REG')" style="flex: 1;">
+              🛡️ REGISTER WARRANTY
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="showPublicWarrantyView('CHK')" style="flex: 1;">
+              🔍 CHECK WARRANTY
+            </button>
+          </div>
         </div>
 
+      </div>
+    </section>
+
+    <!-- PUBLIC WARRANTY MODULE VIEW -->
+    <section id="view-public-warranty" class="view" style="display: none;">
+      <div style="max-width: 500px; margin: 0 auto;">
+        <button class="btn btn-secondary btn-sm" onclick="hidePublicWarrantyView()" style="margin-bottom: 16px;">← Back to Sign In</button>
+        
+        <div class="card">
+          <h2 style="color: var(--mech-orange); font-size: 1.3rem; margin-bottom: 16px;">🛡️ Mechshakti Battery Warranty Portal</h2>
+          
+          <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+            <button id="tab-w-reg" class="btn btn-primary btn-sm" onclick="setWarrantySubTab('REG')">Register Warranty</button>
+            <button id="tab-w-chk" class="btn btn-secondary btn-sm" onclick="setWarrantySubTab('CHK')">Check Warranty Status</button>
+          </div>
+
+          <div id="section-w-reg">
+            <form id="form-public-warranty-reg">
+              <div class="form-group">
+                <label class="form-label">Battery Serial / QR Code *</label>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" id="w-reg-code" class="form-control" placeholder="e.g. MS010826XXXX" required>
+                  <button type="button" class="btn btn-secondary" onclick="startCameraScanner('WARRANTY_REG')">📷 Scan</button>
+                </div>
+                <div id="w-reg-serial-feedback" style="display: none; margin-top: 6px; font-size: 0.85rem;"></div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Customer Name *</label>
+                <input type="text" id="w-reg-name" class="form-control" placeholder="Full Name" required>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Mobile Number *</label>
+                <input type="tel" id="w-reg-mobile" class="form-control" placeholder="10-digit mobile" required>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Purchase Date *</label>
+                <input type="date" id="w-reg-date" class="form-control" required>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Vehicle Number (Optional)</label>
+                <input type="text" id="w-reg-vehicle" class="form-control" placeholder="e.g. GJ05AB1234">
+              </div>
+
+              <button type="submit" class="btn btn-primary btn-block" style="margin-top: 16px;">
+                SUBMIT WARRANTY REGISTRATION
+              </button>
+            </form>
+
+            <div id="w-reg-success-card" style="display: none;"></div>
+          </div>
+
+          <div id="section-w-chk" style="display: none;">
+            <div class="form-group">
+              <label class="form-label">Enter Battery Serial Code</label>
+              <input type="text" id="w-chk-code" class="form-control" placeholder="e.g. MS010826XXXX">
+            </div>
+            <button type="button" class="btn btn-primary btn-block" onclick="checkPublicWarranty()">
+              SEARCH WARRANTY
+            </button>
+
+            <div id="w-chk-result" style="margin-top: 16px; display: none;"></div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -107,7 +204,6 @@
       <div class="dash-greeting" id="dash-welcome-text">Good Morning, Partner</div>
       <div class="dash-subtitle">Mechshakti Sales & Collection Summary</div>
 
-      <!-- Admin Pending Approval Notification Alert Box -->
       <div id="dash-admin-approval-banner" style="display: none; background: rgba(2, 132, 199, 0.18); border: 1px solid var(--status-pending-border); border-radius: 14px; padding: 14px; margin-bottom: 16px; align-items: center; justify-content: space-between;">
         <div>
           <strong style="color: var(--status-pending-text); font-size: 0.95rem;">🔔 New Partner Registration</strong>
@@ -135,7 +231,6 @@
         </div>
       </div>
 
-      <!-- Quick Action Buttons -->
       <div class="action-row" style="margin-bottom: 24px;">
         <button class="btn btn-primary" onclick="switchTab('new-invoice')">
           + New Bill
@@ -146,593 +241,462 @@
         <button class="btn btn-secondary" onclick="openProductModal()">
           + Product
         </button>
-      </div>
-
-      <!-- Recent Sales Invoices Section -->
-      <div class="card">
-        <div class="card-title">
-          <span>Recent Sales Invoices</span>
-          <button class="btn btn-secondary btn-sm" onclick="switchTab('invoices')">View All</button>
-        </div>
-        <div id="dash-recent-invoices-list">
-          <!-- Rendered via JS -->
-        </div>
+        <button class="btn btn-secondary" onclick="openPaymentModal()">
+          + Payment
+        </button>
       </div>
     </section>
 
-    <!-- 3. CUSTOMER DIRECTORY VIEW -->
+    <!-- 3. CUSTOMERS VIEW -->
     <section id="view-customers" class="view" style="display: none;">
-      <div class="card" style="padding: 14px;">
-        <div class="card-title" style="margin-bottom: 12px;">
-          <span>Customers & Khata</span>
-          <button class="btn btn-primary btn-sm" onclick="openCustomerModal()">+ Add Customer</button>
-        </div>
-
-        <div class="form-group" style="margin-bottom: 10px;">
-          <input type="text" id="customer-search" class="form-control" placeholder="Search customer name, shop or mobile..." onkeyup="filterCustomers()">
-        </div>
-
-        <div class="filter-bar">
-          <div class="filter-pill cust-filter-btn active" data-status="all" onclick="setCustomerFilter('all')">All</div>
-          <div class="filter-pill cust-filter-btn" data-status="outstanding" onclick="setCustomerFilter('outstanding')">Outstanding</div>
-          <div class="filter-pill cust-filter-btn" data-status="paid" onclick="setCustomerFilter('paid')">Paid</div>
-        </div>
-
-        <div id="customers-list-container">
-          <!-- Rendered via JS -->
-        </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2>Customers Directory</h2>
+        <button class="btn btn-primary btn-sm" onclick="openCustomerModal()">+ Add Customer</button>
       </div>
+
+      <div style="margin-bottom: 16px;">
+        <input type="text" id="customer-search-input" class="form-control" placeholder="🔍 Search customers by Name, Mobile or Garage..." onkeyup="filterCustomersList()">
+      </div>
+
+      <div id="customers-list-container" class="cards-list"></div>
     </section>
 
-    <!-- 3B. CUSTOMER LEDGER VIEW (Digital Khata) -->
-    <section id="view-customer-ledger" class="view" style="display: none;">
-      <div style="margin-bottom: 12px;">
-        <button class="btn btn-secondary btn-sm" onclick="switchTab('customers')">← Back to Customers</button>
-      </div>
-
-      <div class="khata-header">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-          <div>
-            <h2 id="ledger-cust-name" style="margin-bottom: 2px;">Customer Name</h2>
-            <div id="ledger-cust-sub" style="color: var(--text-muted); font-size: 0.85rem;">Mobile / Shop</div>
-          </div>
-          <button class="btn btn-success btn-sm" onclick="openPaymentModalForCustomer()">+ Record Payment</button>
-        </div>
-
-        <div class="khata-stats">
-          <div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Total Bills</div>
-            <div id="ledger-total-bills" class="khata-stat-val">₹0</div>
-          </div>
-          <div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Total Paid</div>
-            <div id="ledger-total-paid" class="khata-stat-val" style="color: var(--status-paid-text);">₹0</div>
-          </div>
-          <div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Outstanding</div>
-            <div id="ledger-outstanding" class="khata-stat-val" style="color: var(--status-unpaid-text);">₹0</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">Transaction History</div>
-        <div id="ledger-transactions-list">
-          <!-- Rendered via JS -->
-        </div>
-      </div>
-    </section>
-
-    <!-- 4. NEW BILL VIEW (5-Step Mechanic Workflow) -->
+    <!-- 4. NEW BILL WORKFLOW -->
     <section id="view-new-invoice" class="view" style="display: none;">
-      <div class="card">
-        <div class="step-indicator">
-          <div class="step-item active"><span class="step-num">1</span> Customer</div>
-          <div class="step-item active"><span class="step-num">2</span> Product</div>
-          <div class="step-item active"><span class="step-num">3</span> Rate & Qty</div>
-          <div class="step-item active"><span class="step-num">4</span> Payment</div>
-          <div class="step-item active"><span class="step-num">5</span> Bill</div>
+      <div class="card" style="max-width: 600px; margin: 0 auto;">
+        <h2 style="color: var(--mech-orange); font-size: 1.3rem; margin-bottom: 16px;">⚡ New Battery Bill</h2>
+
+        <div class="form-group">
+          <label class="form-label">1. Select Customer *</label>
+          <div style="display: flex; gap: 8px;">
+            <select id="bill-customer-select" class="form-control" onchange="onBillCustomerSelected()" required>
+              <option value="">-- Choose Customer --</option>
+            </select>
+            <button class="btn btn-secondary" onclick="openCustomerModal()">+ New</button>
+          </div>
         </div>
 
-        <h2 style="margin-bottom: 16px;">New Battery Bill</h2>
+        <div class="form-group">
+          <label class="form-label">2. Select Battery Model *</label>
+          <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <select id="bill-product-select" class="form-control" onchange="onBillProductSelected()">
+              <option value="">-- Select Battery --</option>
+            </select>
+            <button type="button" class="btn btn-secondary" onclick="startCameraScanner('NEW_BILL')">📷 Scan QR</button>
+          </div>
 
-        <form id="form-invoice" onsubmit="saveInvoice(event)">
+          <div id="bill-scanned-card" style="display: none; background: rgba(34, 197, 94, 0.15); border: 1px solid var(--status-active-border); border-radius: 8px; padding: 10px; margin-top: 8px;">
+            <strong style="color: var(--status-active-text);">✓ BATTERY DETECTED</strong>
+            <div id="bill-scanned-code-text" style="font-family: monospace; font-size: 0.9rem; margin-top: 2px;"></div>
+          </div>
+        </div>
 
-          <!-- STEP 1: CUSTOMER SELECTION -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
           <div class="form-group">
-            <label class="form-label">STEP 1 → CUSTOMER *</label>
-            <div style="display: flex; gap: 8px;">
-              <select id="inv-customer-select" class="form-select" required onchange="onCustomerChange()">
-                <option value="">-- Search Customer by Name or Mobile --</option>
-              </select>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="openInlineCustomerModal()" style="white-space: nowrap;">+ ADD CUSTOMER</button>
-            </div>
+            <label class="form-label">Rate (₹) <span id="rate-auto-badge" style="font-size: 0.75rem; color: var(--mech-orange);"></span></label>
+            <input type="number" id="bill-rate-input" class="form-control" step="0.01" value="0">
           </div>
-
-          <div id="customer-info-box" style="display: none; padding: 12px; background: rgba(253, 74, 54, 0.12); border-radius: 10px; margin-bottom: 16px; font-size: 0.88rem;">
-            <!-- Customer quick snapshot -->
-          </div>
-
-          <!-- STEP 2: PRODUCT / BATTERY SELECTION & SCANNER -->
           <div class="form-group">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <label class="form-label" style="margin: 0;">STEP 2 → PRODUCT / BATTERY *</label>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="openProductModal()">+ Add New Product</button>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
-              <button type="button" class="btn btn-secondary" onclick="toggleProductPresetGrid()">
-                + SELECT PRODUCT
-              </button>
-              <button type="button" class="btn btn-primary" onclick="openQRScannerModal()">
-                📷 SCAN BATTERY
-              </button>
-            </div>
-
-            <!-- Preset Product Cards -->
-            <div id="product-preset-wrapper" style="display: block;">
-              <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">PRESET BATTERIES:</div>
-              <div class="battery-card-grid" id="battery-quick-select-grid">
-                <!-- Preset Cards Rendered via JS -->
-              </div>
-            </div>
-
-            <!-- Scanned Battery Card -->
-            <div id="qr-success-card" class="qr-success-card" style="display: none;">
-              <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                <div>
-                  <div style="color: var(--status-paid-text); font-weight: 800; font-size: 1rem; margin-bottom: 4px;">✓ BATTERY DETECTED</div>
-                  <div style="font-size: 0.95rem; font-weight: 700;" id="qr-card-prod-name">MECHSHAKTI 2.5 XL</div>
-                  <div style="font-size: 0.82rem; color: var(--text-muted);" id="qr-card-code">Code: MS01XXXXXXXX</div>
-                  <div style="font-size: 0.82rem; color: var(--accent); margin-top: 2px;" id="qr-card-mfg">Manufacturing: August 2026</div>
-                </div>
-                <button type="button" class="btn btn-secondary btn-sm" onclick="clearScannedBatteryCard()">✕ Remove</button>
-              </div>
-            </div>
-
-            <!-- STEP 3: RATE & QUANTITY LINE ITEMS TABLE -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; margin-top: 16px;">
-              <label class="form-label" style="margin: 0;">STEP 3 → RATE & QUANTITY</label>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="addInvoiceItemRow()">+ Add Item</button>
-            </div>
-
-            <div class="table-responsive" style="margin-bottom: 16px;">
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th style="min-width: 170px;">Product</th>
-                    <th style="width: 130px;">Quantity</th>
-                    <th style="width: 110px;">Rate (₹)</th>
-                    <th style="width: 90px;">Disc (₹)</th>
-                    <th style="width: 110px;">Total (₹)</th>
-                    <th style="width: 40px;"></th>
-                  </tr>
-                </thead>
-                <tbody id="invoice-items-body">
-                  <!-- Rows added dynamically -->
-                </tbody>
-              </table>
-            </div>
+            <label class="form-label">Quantity</label>
+            <input type="number" id="bill-qty-input" class="form-control" min="1" value="1">
           </div>
-
-          <!-- STEP 4: PAYMENT OPTIONS -->
-          <div class="form-group">
-            <label class="form-label">STEP 4 → PAYMENT *</label>
-            
-            <div class="option-pills-3">
-              <div class="option-pill pay-mode-pill active" data-mode="PAID" onclick="setPaymentMode('PAID')">PAID</div>
-              <div class="option-pill pay-mode-pill" data-mode="PARTIALLY_PAID" onclick="setPaymentMode('PARTIALLY_PAID')">PARTIAL</div>
-              <div class="option-pill pay-mode-pill" data-mode="CREDIT" onclick="setPaymentMode('CREDIT')">CREDIT</div>
-            </div>
-
-            <div id="pay-method-section">
-              <label class="form-label" style="font-size: 0.78rem;">PAYMENT METHOD:</label>
-              <div class="payment-method-pills">
-                <div class="pm-pill bill-pm-pill active" data-method="CASH" onclick="setBillPaymentMethod('CASH')">CASH</div>
-                <div class="pm-pill bill-pm-pill" data-method="UPI" onclick="setBillPaymentMethod('UPI')">UPI</div>
-                <div class="pm-pill bill-pm-pill" data-method="BANK" onclick="setBillPaymentMethod('BANK')">BANK</div>
-                <div class="pm-pill bill-pm-pill" data-method="CARD" onclick="setBillPaymentMethod('CARD')">CARD</div>
-                <div class="pm-pill bill-pm-pill" data-method="OTHER" onclick="setBillPaymentMethod('OTHER')">OTHER</div>
-              </div>
-            </div>
-
-            <div id="partial-amount-group" class="form-group" style="display: none; margin-top: 10px;">
-              <label class="form-label">Paid Amount (₹)</label>
-              <input type="number" step="0.01" id="inv-paid-amount-input" class="form-control" placeholder="0.00" oninput="recalculateInvoiceTotals()">
-            </div>
-          </div>
-
-          <!-- STEP 5: REVIEW & GENERATE BILL -->
-          <div style="background: var(--bg-header); padding: 16px; border-radius: 14px; border: 1px solid var(--border-color); margin-bottom: 20px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.88rem;"><span>Subtotal:</span><span id="inv-subtotal">₹0.00</span></div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.88rem;"><span>Discount:</span><span id="inv-discount">₹0.00</span></div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.88rem;"><span>GST (18% Included):</span><span id="inv-gst">₹0.00</span></div>
-            <div style="display: flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color); font-size: 1.25rem; font-weight: 800; color: var(--mech-red);">
-              <span>Grand Total:</span><span id="inv-grandtotal">₹0.00</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; color: var(--status-paid-text); margin-top: 4px; font-size: 0.9rem;"><span>Paid:</span><span id="inv-summary-paid">₹0.00</span></div>
-            <div style="display: flex; justify-content: space-between; color: var(--status-unpaid-text); font-weight: 700; margin-top: 4px; font-size: 0.9rem;"><span>Outstanding:</span><span id="inv-summary-outstanding">₹0.00</span></div>
-          </div>
-
-          <button type="submit" class="btn btn-primary btn-block" style="font-size: 1.15rem; padding: 16px;">
-            GENERATE BILL
-          </button>
-        </form>
-      </div>
-    </section>
-
-    <!-- 5. INVOICES HISTORY VIEW -->
-    <section id="view-invoices" class="view" style="display: none;">
-      <div class="card">
-        <div class="card-title">Invoices & Bills</div>
-
-        <div class="form-group" style="margin-bottom: 10px;">
-          <input type="text" id="invoice-search" class="form-control" placeholder="Search invoice # or customer..." onkeyup="filterInvoices()">
         </div>
 
-        <div id="invoices-list-container">
-          <!-- Invoice Cards Rendered via JS -->
-        </div>
-      </div>
-    </section>
+        <button type="button" class="btn btn-secondary btn-block" onclick="addBillItem()" style="margin-bottom: 16px;">
+          + Add Item To Bill
+        </button>
 
-    <!-- 6. SIMPLE REPORTS VIEW -->
-    <section id="view-reports" class="view" style="display: none;">
-      <div class="card">
-        <div class="card-title">
-          <span>Sales & Battery Reports</span>
-          <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ Print</button>
-        </div>
+        <div id="bill-items-table-container" style="margin-bottom: 16px;"></div>
 
-        <div style="display: flex; gap: 6px; overflow-x: auto; margin-bottom: 16px; padding-bottom: 4px;">
-          <button class="filter-pill report-date-btn active" data-preset="this_month" onclick="setReportDatePreset('this_month')">This Month</button>
-          <button class="filter-pill report-date-btn" data-preset="today" onclick="setReportDatePreset('today')">Today</button>
-          <button class="filter-pill report-date-btn" data-preset="yesterday" onclick="setReportDatePreset('yesterday')">Yesterday</button>
-          <button class="filter-pill report-date-btn" data-preset="this_week" onclick="setReportDatePreset('this_week')">This Week</button>
-          <button class="filter-pill report-date-btn" data-preset="this_year" onclick="setReportDatePreset('this_year')">This Year</button>
-        </div>
-
-        <div id="admin-seller-filter-wrap" style="display: none; margin-bottom: 14px;">
-          <select id="rep-seller-select" class="form-select" onchange="loadActiveReport()">
-            <option value="">-- All Sellers / Consolidated --</option>
+        <div class="form-group">
+          <label class="form-label">4. Payment Terms</label>
+          <select id="bill-payment-mode" class="form-control" onchange="onBillPaymentModeChanged()">
+            <option value="PAID">Paid Full</option>
+            <option value="PARTIAL">Partially Paid</option>
+            <option value="CREDIT">Unpaid / Credit</option>
           </select>
         </div>
 
-        <div id="report-output-container">
-          <!-- Rendered via JS -->
+        <div id="bill-paid-amount-group" class="form-group" style="display: none;">
+          <label class="form-label">Paid Amount (₹)</label>
+          <input type="number" id="bill-paid-amount" class="form-control" value="0">
         </div>
+
+        <div class="form-group">
+          <label class="form-label">Payment Method</label>
+          <select id="bill-payment-method" class="form-control" onchange="onBillPaymentMethodChanged()">
+            <option value="CASH">Cash</option>
+            <option value="UPI">UPI Payment</option>
+            <option value="BANK">Bank Transfer</option>
+            <option value="CARD">Card</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </div>
+
+        <div id="seller-upi-qr-card" style="display: none; text-align: center; background: var(--bg-card-elevated); border: 1px dashed var(--mech-orange); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+          <strong style="color: var(--mech-orange);">[ SCAN TO PAY ]</strong>
+          <div id="seller-upi-id-display" style="font-weight: 700; margin: 6px 0;"></div>
+          <div style="font-size: 0.8rem; color: var(--text-muted);">Confirm received payment before finalizing invoice.</div>
+        </div>
+
+        <button type="button" class="btn btn-primary btn-block" onclick="submitGenerateInvoice()" style="font-size: 1.05rem; padding: 14px;">
+          GENERATE BILL & SAVE
+        </button>
       </div>
     </section>
 
-    <!-- 7. SELLERS & PARTNER APPROVALS VIEW (Admin) -->
-    <section id="view-sellers" class="view" style="display: none;">
-      <div class="card">
-        <div class="card-title">
-          <span>Partners & Approvals</span>
-          <button class="btn btn-primary btn-sm" onclick="openSellerModal()">+ Add Partner Direct</button>
+    <!-- 5. INVOICES LIST VIEW -->
+    <section id="view-invoices" class="view" style="display: none;">
+      <h2>Invoices & Bills</h2>
+      <div id="invoices-list-container" class="cards-list" style="margin-top: 16px;"></div>
+    </section>
+
+    <!-- 6. PAYMENTS LEDGER VIEW -->
+    <section id="view-payments" class="view" style="display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2>💳 Payments Ledger</h2>
+        <button class="btn btn-primary btn-sm" onclick="openPaymentModal()">+ Record Payment</button>
+      </div>
+      <div id="payments-list-container" class="cards-list"></div>
+    </section>
+
+    <!-- 7. REPORTS VIEW -->
+    <section id="view-reports" class="view" style="display: none;">
+      <h2>Sales & Hierarchy Reports</h2>
+      <div id="reports-tree-container" style="margin-top: 16px;"></div>
+    </section>
+
+    <!-- 8. REFERRALS & REWARDS MODULE VIEW -->
+    <section id="view-rewards" class="view" style="display: none;">
+      <div class="card" style="max-width: 600px; margin: 0 auto;">
+        <h2 style="color: var(--mech-orange); margin-bottom: 16px;">🎁 Referral & Reward Ledger</h2>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+          <div class="dash-card">
+            <div class="dash-card-label">Available Points</div>
+            <div id="reward-avail-pts" class="dash-card-value highlight-sales">0.00</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-label">Lifetime Earned</div>
+            <div id="reward-lifetime-pts" class="dash-card-value highlight-collected">0.00</div>
+          </div>
         </div>
 
-        <!-- Status Filter Pills for Admin -->
-        <div class="filter-bar" style="margin-bottom: 16px; overflow-x: auto;">
-          <div class="filter-pill seller-filter-btn active" data-status="PENDING_APPROVAL" onclick="setSellerFilter('PENDING_APPROVAL')">Pending Approval</div>
-          <div class="filter-pill seller-filter-btn" data-status="ACTIVE" onclick="setSellerFilter('ACTIVE')">Active</div>
-          <div class="filter-pill seller-filter-btn" data-status="REJECTED" onclick="setSellerFilter('REJECTED')">Rejected</div>
-          <div class="filter-pill seller-filter-btn" data-status="SUSPENDED" onclick="setSellerFilter('SUSPENDED')">Suspended</div>
-          <div class="filter-pill seller-filter-btn" data-status="ALL" onclick="setSellerFilter('ALL')">All Partners</div>
+        <div style="display: flex; gap: 8px; margin-bottom: 20px;">
+          <button class="btn btn-primary btn-sm" onclick="openReferralModal()" style="flex: 1;">+ Refer Person</button>
+          <button class="btn btn-secondary btn-sm" onclick="openRedeemModal()" style="flex: 1;">Redeem Points</button>
         </div>
 
-        <div id="sellers-list-container">
-          <!-- Rendered via JS -->
+        <h3>My Referral Network</h3>
+        <div id="referrals-network-tree" style="margin-top: 12px; margin-bottom: 24px;"></div>
+
+        <h3>Reward Transactions History</h3>
+        <div id="reward-txns-list" style="margin-top: 12px;"></div>
+      </div>
+    </section>
+
+    <!-- 9. PROFILE VIEW (Live Account Details & UPI Settings) -->
+    <section id="view-profile" class="view" style="display: none;">
+      <div class="card" style="max-width: 500px; margin: 0 auto;">
+        <h2 style="color: var(--mech-orange); margin-bottom: 16px;">👤 Account Profile & Settings</h2>
+        
+        <div style="background: var(--bg-card-elevated); border-radius: 10px; padding: 14px; margin-bottom: 16px;">
+          <div style="font-size: 1.1rem; font-weight: 700; color: var(--text-main);" id="prof-display-name"></div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);" id="prof-display-email"></div>
+          <div style="margin-top: 6px;"><span id="prof-display-role-badge" class="badge badge-active"></span></div>
         </div>
+
+        <div class="form-group">
+          <label class="form-label">Phone / Mobile Number</label>
+          <input type="text" id="prof-phone" class="form-control" readonly>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Garage / Shop Name</label>
+          <input type="text" id="prof-shop" class="form-control" readonly>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">City</label>
+          <input type="text" id="prof-city" class="form-control" readonly>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Seller UPI ID (e.g. garage@upi) *</label>
+          <input type="text" id="prof-upi-id" class="form-control" placeholder="Enter your UPI ID">
+        </div>
+
+        <button class="btn btn-primary btn-block" onclick="saveProfileUPI()">
+          SAVE UPI DETAILS
+        </button>
+      </div>
+    </section>
+
+    <!-- 10. ADMIN PARTNER APPROVALS & SELLERS VIEW -->
+    <section id="view-admin-sellers" class="view" style="display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2>📋 Partner Approvals & List</h2>
+        <button class="btn btn-primary btn-sm" onclick="openPartnerCreateModal()">+ Add Partner</button>
+      </div>
+
+      <div style="display: flex; gap: 6px; margin-bottom: 16px; overflow-x: auto;">
+        <button class="btn btn-secondary btn-sm" onclick="setSellerFilter('PENDING_APPROVAL')">Pending Approval</button>
+        <button class="btn btn-secondary btn-sm" onclick="setSellerFilter('ACTIVE')">Active</button>
+        <button class="btn btn-secondary btn-sm" onclick="setSellerFilter('REJECTED')">Rejected</button>
+        <button class="btn btn-secondary btn-sm" onclick="setSellerFilter('SUSPENDED')">Suspended</button>
+        <button class="btn btn-secondary btn-sm" onclick="setSellerFilter('ALL')">All Partners</button>
+      </div>
+
+      <div id="admin-sellers-list-container" class="cards-list"></div>
+    </section>
+
+    <!-- 11. ADMIN WARRANTY QUEUE VIEW -->
+    <section id="view-admin-warranties" class="view" style="display: none;">
+      <h2>🛡️ Admin Warranty Verification Queue</h2>
+      <div id="admin-warranties-list-container" class="cards-list" style="margin-top: 16px;"></div>
+    </section>
+
+    <!-- 12. ADMIN GLOBAL SEARCH VIEW -->
+    <section id="view-admin-search" class="view" style="display: none;">
+      <div class="card" style="max-width: 700px; margin: 0 auto;">
+        <h2 style="color: var(--mech-orange); margin-bottom: 16px;">🔍 Admin Global Traceability Search</h2>
+        
+        <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+          <input type="text" id="admin-search-input" class="form-control" placeholder="Search Battery Serial, QR, Customer Name, Mobile, Invoice #..." onkeyup="if(event.key==='Enter') executeAdminSearch()">
+          <button class="btn btn-primary" onclick="executeAdminSearch()">Search</button>
+        </div>
+
+        <div id="admin-search-results"></div>
       </div>
     </section>
 
   </main>
 
   <!-- Bottom Navigation Bar -->
-  <nav class="bottom-nav">
+  <nav class="bottom-nav" style="display: none;">
     <button class="nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')">
-      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      <span>Home</span>
+      <span class="nav-icon">🏠</span>
+      <span class="nav-label">Home</span>
     </button>
+
     <button class="nav-item" data-tab="customers" onclick="switchTab('customers')">
-      <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 4-4H5a4 4 0 0 4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span>Customers</span>
+      <span class="nav-icon">👥</span>
+      <span class="nav-label">Customers</span>
     </button>
-    <button class="nav-item nav-prominent" data-tab="new-invoice" onclick="switchTab('new-invoice')">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-      <span>New Bill</span>
+
+    <button class="nav-item nav-item-primary" data-tab="new-invoice" onclick="switchTab('new-invoice')">
+      <span class="nav-icon">⚡</span>
+      <span class="nav-label">NEW BILL</span>
     </button>
+
     <button class="nav-item" data-tab="invoices" onclick="switchTab('invoices')">
-      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-      <span>Invoices</span>
+      <span class="nav-icon">🧾</span>
+      <span class="nav-label">Invoices</span>
     </button>
+
     <button class="nav-item" data-tab="reports" onclick="switchTab('reports')">
-      <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-      <span>Reports</span>
-    </button>
-    <button id="nav-sellers-btn" class="nav-item" data-tab="sellers" style="display: none;" onclick="switchTab('sellers')">
-      <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-      <span>Approvals</span>
+      <span class="nav-icon">📊</span>
+      <span class="nav-label">Reports</span>
     </button>
   </nav>
 
-  <!-- PARTNER SELF REGISTRATION MODAL -->
-  <div id="modal-register" class="modal-overlay">
-    <div class="modal-content" style="max-width: 500px;">
-      <div style="text-align: center; margin-bottom: 16px;">
-        <img src="/assets/logo.png" alt="Mechshakti Logo" style="height: 36px; width: auto; margin-bottom: 6px;">
-        <h3 style="margin: 0;">Create Partner Account</h3>
-        <div style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">Join Mechshakti Sales & Invoice Network</div>
-      </div>
+  <!-- MODALS -->
 
-      <form id="form-register" onsubmit="submitPartnerRegistration(event)">
-        
-        <div style="font-size: 0.8rem; font-weight: 700; color: var(--mech-red); margin-bottom: 8px; text-transform: uppercase;">1. Personal Details</div>
-        
-        <div class="form-group">
-          <label class="form-label">Full Name *</label>
-          <input type="text" id="reg-name" class="form-control" required placeholder="e.g. Rahul Patel">
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-          <div class="form-group">
-            <label class="form-label">Mobile Number *</label>
-            <input type="tel" id="reg-mobile" class="form-control" required placeholder="10-digit mobile" maxlength="10">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Email Address *</label>
-            <input type="email" id="reg-email" class="form-control" required placeholder="name@domain.com">
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-          <div class="form-group">
-            <label class="form-label">Password *</label>
-            <input type="password" id="reg-password" class="form-control" required placeholder="Min 6 chars">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Confirm Password *</label>
-            <input type="password" id="reg-confirm-password" class="form-control" required placeholder="Verify password">
-          </div>
-        </div>
-
-        <div style="font-size: 0.8rem; font-weight: 700; color: var(--mech-red); margin-top: 10px; margin-bottom: 8px; text-transform: uppercase;">2. Business Details</div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-          <div class="form-group">
-            <label class="form-label">Garage / Shop Name *</label>
-            <input type="text" id="reg-shop" class="form-control" required placeholder="e.g. Rahul Auto Electricals">
-          </div>
-          <div class="form-group">
-            <label class="form-label">City *</label>
-            <input type="text" id="reg-city" class="form-control" required placeholder="e.g. Surat">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Shop Address</label>
-          <input type="text" id="reg-address" class="form-control" placeholder="e.g. Shop 12, Varachha Main Road">
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-          <div class="form-group">
-            <label class="form-label">GST Number (Optional)</label>
-            <input type="text" id="reg-gst" class="form-control" placeholder="24AAAAA0000A1Z5" style="text-transform: uppercase;">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Dealer Code (Optional)</label>
-            <input type="text" id="reg-dealer-code" class="form-control" placeholder="e.g. MS-SURAT-01">
-          </div>
-        </div>
-
-        <div style="margin-top: 20px; display: flex; gap: 10px;">
-          <button type="button" class="btn btn-secondary" style="flex: 1;" onclick="closeRegisterModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary" style="flex: 1.2;">SUBMIT REGISTRATION</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- REGISTRATION SUBMITTED / PENDING APPROVAL MODAL -->
-  <div id="modal-pending-confirmation" class="modal-overlay">
-    <div class="modal-content" style="max-width: 420px; text-align: center;">
-      <div style="font-size: 3rem; margin-bottom: 8px;">⏳</div>
-      <h3 style="color: var(--status-pending-text); margin-bottom: 8px;" id="pending-modal-title">Registration Submitted</h3>
-      
-      <div style="background: var(--bg-header); padding: 14px; border-radius: 12px; margin-bottom: 16px; text-align: left; font-size: 0.88rem; line-height: 1.5; border: 1px solid var(--border-color);">
-        <p id="pending-modal-msg1" style="font-weight: 700; margin-bottom: 6px;">Your account is waiting for Admin approval.</p>
-        <p id="pending-modal-msg2" style="color: var(--text-muted);">You will be able to login after your account is approved by Mechshakti Admin.</p>
-      </div>
-
-      <button type="button" class="btn btn-primary btn-block" onclick="closePendingConfirmationModal()">Understood</button>
-    </div>
-  </div>
-
-  <!-- ADMIN PARTNER REVIEW & DETAIL MODAL -->
-  <div id="modal-partner-detail" class="modal-overlay">
-    <div class="modal-content" style="max-width: 520px;">
-      <h3 style="margin-bottom: 12px;">Partner Application Review</h3>
-      
-      <div id="partner-detail-content">
-        <!-- Rendered via JS -->
-      </div>
-    </div>
-  </div>
-
-  <!-- CUSTOMER MODAL -->
-  <div id="modal-customer" class="modal-overlay">
+  <!-- Add Customer Modal -->
+  <div id="modal-customer" class="modal" style="display: none;">
     <div class="modal-content">
-      <h3 style="margin-bottom: 14px;">+ Add New Customer</h3>
-      <form id="form-add-customer" onsubmit="saveCustomer(event)">
+      <div class="modal-header">
+        <h3>+ Add New Customer</h3>
+        <button class="btn-close" onclick="closeCustomerModal()">✕</button>
+      </div>
+      <form id="form-customer">
         <div class="form-group">
           <label class="form-label">Customer Name *</label>
-          <input type="text" id="cust-name" class="form-control" required placeholder="e.g. ABC Auto Garage">
+          <input type="text" id="cust-name" class="form-control" required>
         </div>
         <div class="form-group">
           <label class="form-label">Mobile Number *</label>
-          <input type="tel" id="cust-mobile" class="form-control" required placeholder="9876543210">
+          <input type="tel" id="cust-mobile" class="form-control" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Garage / Shop Name (Optional)</label>
-          <input type="text" id="cust-shop" class="form-control" placeholder="e.g. ABC Workshop">
+          <label class="form-label">Shop / Garage Name</label>
+          <input type="text" id="cust-shop" class="form-control">
         </div>
-        <div style="margin-top: 20px; display: flex; gap: 10px;">
-          <button type="button" class="btn btn-secondary" style="flex: 1;" onclick="closeCustomerModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary" style="flex: 1;">Save Customer</button>
+        <div class="form-group">
+          <label class="form-label">City</label>
+          <input type="text" id="cust-city" class="form-control">
         </div>
+        <button type="submit" class="btn btn-primary btn-block">SAVE CUSTOMER</button>
       </form>
     </div>
   </div>
 
-  <!-- PRODUCT MODAL -->
-  <div id="modal-product" class="modal-overlay">
+  <!-- Record Payment Modal -->
+  <div id="modal-payment" class="modal" style="display: none;">
     <div class="modal-content">
-      <h3 style="margin-bottom: 14px;">+ Add New Battery Product</h3>
-      <form id="form-add-product" onsubmit="saveProduct(event)">
+      <div class="modal-header">
+        <h3>+ Record Payment</h3>
+        <button class="btn-close" onclick="closePaymentModal()">✕</button>
+      </div>
+      <form id="form-payment">
         <div class="form-group">
-          <label class="form-label">Battery Product Name *</label>
-          <input type="text" id="prod-name" class="form-control" required placeholder="e.g. Mechshakti Commercial DIN65 Battery">
+          <label class="form-label">Select Customer *</label>
+          <select id="pay-customer-select" class="form-control" required></select>
         </div>
         <div class="form-group">
-          <label class="form-label">Model Code (First 4 chars of QR Code) *</label>
-          <input type="text" id="prod-code" class="form-control" required placeholder="e.g. MS05" style="text-transform: uppercase;" maxlength="6">
+          <label class="form-label">Payment Amount (₹) *</label>
+          <input type="number" id="pay-amount" class="form-control" step="0.01" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Payment Method</label>
+          <select id="pay-method" class="form-control">
+            <option value="CASH">Cash</option>
+            <option value="UPI">UPI</option>
+            <option value="BANK">Bank Transfer</option>
+            <option value="CARD">Card</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reference / UTR Number</label>
+          <input type="text" id="pay-ref" class="form-control" placeholder="Optional">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">SAVE PAYMENT</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Product Modal -->
+  <div id="modal-product" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>+ Add Battery Model</h3>
+        <button class="btn-close" onclick="closeProductModal()">✕</button>
+      </div>
+      <form id="form-product">
+        <div class="form-group">
+          <label class="form-label">Battery Name *</label>
+          <input type="text" id="prod-name" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Model Code (e.g. MS05) *</label>
+          <input type="text" id="prod-code" class="form-control" required>
         </div>
         <div class="form-group">
           <label class="form-label">Selling Price (₹) *</label>
-          <input type="number" step="0.01" id="prod-price" class="form-control" required placeholder="e.g. 2400.00">
+          <input type="number" id="prod-price" class="form-control" step="0.01" required>
         </div>
-        <div class="form-group">
-          <label class="form-label">GST Rate (%)</label>
-          <input type="number" step="0.1" id="prod-gst" class="form-control" value="18.0" placeholder="18.0">
-        </div>
-        <div style="margin-top: 20px; display: flex; gap: 10px;">
-          <button type="button" class="btn btn-secondary" style="flex: 1;" onclick="closeProductModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary" style="flex: 1;">Save Product</button>
-        </div>
+        <button type="submit" class="btn btn-primary btn-block">SAVE BATTERY</button>
       </form>
     </div>
   </div>
 
-  <!-- QR CAMERA SCANNER MODAL -->
-  <div id="modal-qr-scanner" class="modal-overlay">
-    <div class="modal-content" style="max-width: 450px; text-align: center;">
-      <h3 style="margin-bottom: 8px;">📷 Scan Battery QR Code</h3>
-      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 14px;">Place Mechshakti QR code inside the scanning frame</p>
-
-      <div class="scanner-container">
-        <video id="qr-video-preview" class="scanner-video" playsinline></video>
-        <div class="scanner-frame-overlay"></div>
+  <!-- Invoice Preview Modal -->
+  <div id="modal-invoice-preview" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 650px;">
+      <div class="modal-header">
+        <h3>Tax Invoice Preview</h3>
+        <button class="btn-close" onclick="closeInvoicePreviewModal()">✕</button>
       </div>
-
-      <div style="margin-bottom: 14px;">
-        <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">OR TYPE BATTERY CODE:</div>
-        <div style="display: flex; gap: 6px;">
-          <input type="text" id="manual-qr-input" class="form-control" placeholder="e.g. MS010826XXXX" style="text-transform: uppercase;">
-          <button type="button" class="btn btn-primary btn-sm" onclick="processManualQRInput()">Verify</button>
-        </div>
+      <div id="invoice-preview-body"></div>
+      <div style="display: flex; gap: 8px; margin-top: 16px;">
+        <button class="btn btn-secondary btn-sm" onclick="window.print()" style="flex: 1;">🖨️ Print</button>
+        <button class="btn btn-secondary btn-sm" onclick="downloadInvoicePDF()" style="flex: 1;">📄 Download PDF</button>
+        <button class="btn btn-primary btn-sm" onclick="shareInvoiceWhatsApp()" style="flex: 1;">💬 Share WhatsApp</button>
       </div>
-
-      <button type="button" class="btn btn-secondary btn-block" onclick="closeQRScannerModal()">Cancel</button>
     </div>
   </div>
 
-  <!-- PAYMENT RECORDING MODAL -->
-  <div id="modal-payment" class="modal-overlay">
-    <div class="modal-content">
-      <h3 style="margin-bottom: 4px;">Record Payment</h3>
-      <div id="pay-cust-subtitle" style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 16px;">Select customer and enter payment amount</div>
-
-      <form id="form-record-payment" onsubmit="savePayment(event)">
-        <input type="hidden" id="pay-invoice-id">
-
+  <!-- Self Registration Modal -->
+  <div id="modal-register" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3>Create Partner Account</h3>
+        <button class="btn-close" onclick="closeRegisterModal()">✕</button>
+      </div>
+      <form id="form-register">
         <div class="form-group">
-          <label class="form-label">Select Customer *</label>
-          <select id="pay-customer-select" class="form-select" required onchange="onPaymentCustomerChange()">
-            <option value="">-- Choose Customer --</option>
-          </select>
-        </div>
-
-        <div id="pay-outstanding-box" style="display: none; padding: 10px 14px; background: var(--status-unpaid-bg); border-radius: 10px; margin-bottom: 16px; color: var(--status-unpaid-text); font-weight: 700;">
-          Outstanding Balance: <span id="pay-outstanding-val">₹0</span>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Amount Received (₹) *</label>
-          <input type="number" step="0.01" id="pay-amount" class="form-control" required placeholder="Enter amount">
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Payment Method *</label>
-          <div class="payment-method-pills">
-            <div class="pm-pill active" data-method="CASH" onclick="setPaymentMethod('CASH')">CASH</div>
-            <div class="pm-pill" data-method="UPI" onclick="setPaymentMethod('UPI')">UPI</div>
-            <div class="pm-pill" data-method="BANK" onclick="setPaymentMethod('BANK')">BANK</div>
-            <div class="pm-pill" data-method="CARD" onclick="setPaymentMethod('CARD')">CARD</div>
-            <div class="pm-pill" data-method="OTHER" onclick="setPaymentMethod('OTHER')">OTHER</div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Reference # / Txn ID (Optional)</label>
-          <input type="text" id="pay-ref" class="form-control" placeholder="UPI Ref / Cheque No">
-        </div>
-
-        <div style="margin-top: 20px; display: flex; gap: 10px;">
-          <button type="button" class="btn btn-secondary" style="flex: 1;" onclick="closePaymentModal()">Cancel</button>
-          <button type="submit" class="btn btn-success" style="flex: 1;">Save Payment</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- SELLER DIRECT CREATE MODAL (Admin) -->
-  <div id="modal-seller" class="modal-overlay">
-    <div class="modal-content">
-      <h3 style="margin-bottom: 14px;">Add New Partner Direct</h3>
-      <form id="form-add-seller" onsubmit="saveSeller(event)">
-        <div class="form-group">
-          <label class="form-label">Partner Name *</label>
-          <input type="text" id="seller-name" class="form-control" required placeholder="e.g. Mehul Sheladiya">
+          <label class="form-label">Full Name *</label>
+          <input type="text" id="reg-name" class="form-control" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Shop Name</label>
-          <input type="text" id="seller-shop" class="form-control" placeholder="e.g. Mechshakti Power">
+          <label class="form-label">Mobile Number *</label>
+          <input type="tel" id="reg-mobile" class="form-control" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Email *</label>
-          <input type="email" id="seller-email" class="form-control" required placeholder="seller@mechshakti.com">
+          <label class="form-label">Email Address *</label>
+          <input type="email" id="reg-email" class="form-control" required>
         </div>
         <div class="form-group">
           <label class="form-label">Password *</label>
-          <input type="password" id="seller-password" class="form-control" required placeholder="••••••••">
+          <input type="password" id="reg-password" class="form-control" required>
         </div>
-        <div style="margin-top: 20px; display: flex; gap: 10px;">
-          <button type="button" class="btn btn-secondary" style="flex: 1;" onclick="closeSellerModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary" style="flex: 1;">Create Account</button>
+        <div class="form-group">
+          <label class="form-label">Confirm Password *</label>
+          <input type="password" id="reg-confirm-password" class="form-control" required>
         </div>
+        <div class="form-group">
+          <label class="form-label">Garage / Shop Name *</label>
+          <input type="text" id="reg-shop" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">City *</label>
+          <input type="text" id="reg-city" class="form-control" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">SUBMIT REGISTRATION</button>
       </form>
     </div>
   </div>
 
-  <!-- INVOICE PRINT/PREVIEW MODAL -->
-  <div id="modal-invoice-view" class="modal-overlay">
-    <div class="modal-content printable-invoice" style="max-width: 650px;">
-      <div class="no-print" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-        <h3>Official Bill Preview</h3>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-primary btn-sm" onclick="window.print()">🖨️ Print</button>
-          <button class="btn btn-secondary btn-sm" onclick="closeInvoiceModal()">Close</button>
+  <!-- Referral Modal -->
+  <div id="modal-referral" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>+ Refer Person / Garage</h3>
+        <button class="btn-close" onclick="closeReferralModal()">✕</button>
+      </div>
+      <form id="form-referral">
+        <div class="form-group">
+          <label class="form-label">Partner Registered Mobile Number *</label>
+          <input type="tel" id="ref-mobile" class="form-control" placeholder="10-digit mobile" required>
         </div>
-      </div>
-
-      <div id="invoice-modal-content">
-        <!-- Rendered via JS -->
-      </div>
+        <button type="submit" class="btn btn-primary btn-block">ESTABLISH REFERRAL LINK</button>
+      </form>
     </div>
   </div>
 
-  <!-- Main JS Logic -->
+  <!-- Redemption Modal -->
+  <div id="modal-redeem" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Redeem Reward Points</h3>
+        <button class="btn-close" onclick="closeRedeemModal()">✕</button>
+      </div>
+      <form id="form-redeem">
+        <div class="form-group">
+          <label class="form-label">Points to Redeem *</label>
+          <input type="number" id="redeem-pts" class="form-control" step="0.01" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">REQUEST PAYOUT</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Camera QR Scanner Overlay Modal -->
+  <div id="modal-camera" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 420px; text-align: center;">
+      <div class="modal-header">
+        <h3>📷 Battery QR Code Scanner</h3>
+        <button class="btn-close" onclick="stopCameraScanner()">✕</button>
+      </div>
+      <div style="position: relative; width: 100%; height: 260px; background: #000; overflow: hidden; border-radius: 8px;">
+        <video id="camera-video" style="width: 100%; height: 100%; object-fit: cover;" playsinline></video>
+      </div>
+      <button class="btn btn-secondary btn-block" onclick="stopCameraScanner()" style="margin-top: 12px;">Close Scanner</button>
+    </div>
+  </div>
+
+  <!-- Application JS Script -->
   <script src="/app.js"></script>
 </body>
 </html>

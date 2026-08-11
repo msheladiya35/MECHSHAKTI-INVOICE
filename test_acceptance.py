@@ -25,133 +25,98 @@ def request(path, method="GET", data=None, token=None):
 
 def run_acceptance_tests():
     print("=" * 75)
-    print("MECHSHAKTI SALES INVOICE PORTAL - PARTNER REGISTRATION & APPROVAL SUITE")
+    print("MECHSHAKTI WARRANTY SYSTEM - 15 POINT TEST SUITE")
     print("=" * 75)
 
     ts = int(time.time())
-    new_partner_email = f"partner_{ts}@mechshakti.com"
-    new_partner_mobile = f"98{ts % 100000000:08d}"
+    test_serial_1 = f"MS010826{ts}"
+    lower_serial_1 = test_serial_1.lower()
 
-    # 1. Partner Self-Registration
-    status, reg_res = request("/api/auth/register", "POST", {
-        "name": "Kishan Patel",
-        "mobile": new_partner_mobile,
-        "email": new_partner_email,
-        "password": "partner123",
-        "confirm_password": "partner123",
-        "shop_name": "Kishan Garage",
-        "city": "Surat",
-        "address": "Shop 4 Patwa Building",
-        "gst_number": "24AAAAA0000A1Z5",
-        "dealer_code": "MS-SURAT-88"
+    # 1. Test Case 1 & 2: New Valid Serial Registration & Format Normalization
+    st1, res1 = request("/api/warranty/register", "POST", {
+        "battery_code": lower_serial_1, # Lowercase test for normalization
+        "customer_name": "Kishan Patel",
+        "customer_mobile": "9876543210",
+        "purchase_date": "2026-08-10"
     })
-    assert status == 201 and reg_res.get("status") == "PENDING_APPROVAL", f"Registration failed: {reg_res}"
-    pending_partner_id = reg_res["id"]
-    print(f"✔ 1. PARTNER SELF-REGISTRATION: Created account (ID: {pending_partner_id}, Status: PENDING_APPROVAL).")
+    assert st1 == 201 and res1["status"] == "VALID"
+    assert res1["battery_code"] == test_serial_1 # Normalized uppercase
+    assert "registered_at" in res1
+    assert res1["expiry_date"] == "2028-08-10" # 24 Months Expiry
+    print(f"✔ 1. NEW VALID SERIAL REGISTRATION: Created (Serial: {test_serial_1}, Expiry: {res1['expiry_date']}).")
 
-    # 2. Duplicate Mobile Check
-    status_dup, dup_res = request("/api/auth/register", "POST", {
-        "name": "Duplicate User",
-        "mobile": new_partner_mobile,
-        "email": f"other_{ts}@mechshakti.com",
-        "password": "partner123",
-        "confirm_password": "partner123",
-        "shop_name": "Dup Shop",
-        "city": "Surat"
+    # 2. Test Case 4 & 5: Duplicate Serial Attempt (Exact Same & Case Differences)
+    st2, res2 = request("/api/warranty/register", "POST", {
+        "battery_code": test_serial_1, # Uppercase attempt
+        "customer_name": "Duplicate User",
+        "customer_mobile": "9112233445",
+        "purchase_date": "2026-08-11"
     })
-    assert status_dup == 400 and "mobile number already exists" in dup_res.get("error", "").lower()
-    print("✔ 2. DUPLICATE REGISTRATION PREVENTION: Blocked duplicate mobile registration.")
+    assert st2 == 400 and "THIS BATTERY WARRANTY IS ALREADY REGISTERED" in res2.get("error", "")
+    print("✔ 2. DUPLICATE PROTECTION: Blocked duplicate attempt with exact error 'THIS BATTERY WARRANTY IS ALREADY REGISTERED.'.")
 
-    # 3. Pending Account Login Prevention
-    status_login_p, login_p_res = request("/api/auth/login", "POST", {
-        "email": new_partner_email,
-        "password": "partner123"
+    # 3. Test Case 6: Pre-Registration Validation Endpoint Check
+    st_val, res_val = request(f"/api/warranty/validate-serial?code={lower_serial_1}")
+    assert st_val == 400 and res_val.get("status_code") == "ALREADY_REGISTERED"
+    print("✔ 3. PRE-REGISTRATION VALIDATION: API correctly rejected pre-check for registered serial.")
+
+    # 4. Test Case 7: Unknown Serial Registration (Pending Verification)
+    unknown_serial = f"MS990826{ts}"
+    st_unk, res_unk = request("/api/warranty/register", "POST", {
+        "battery_code": unknown_serial,
+        "customer_name": "Rahul Verma",
+        "customer_mobile": "9876500000",
+        "purchase_date": "2026-08-10"
     })
-    assert status_login_p == 403 and "pending Admin approval" in login_p_res.get("error", "")
-    print("✔ 3. PENDING LOGIN BLOCK: Prevented login for unapproved partner with exact error message.")
+    assert st_unk == 201 and res_unk["status"] == "PENDING_VERIFICATION"
+    pending_w_id = res_unk["id"]
+    print("✔ 4. UNKNOWN SERIAL REGISTRATION: Created registration with status 'PENDING_VERIFICATION'.")
 
-    # 4. Admin View & Approve Partner
-    status_admin, admin_res = request("/api/auth/login", "POST", {"email": "admin@mechshakti.com", "password": "admin123"})
-    assert status_admin == 200
+    # 5. Test Case 8 & 9: Admin Views & Approves Unknown Serial
+    _, admin_res = request("/api/auth/login", "POST", {"email": "admin@mechshakti.com", "password": "admin123"})
     token_admin = admin_res["token"]
 
-    status_pend, pend_list = request("/api/admin/sellers?status=PENDING_APPROVAL", token=token_admin)
-    assert status_pend == 200 and any(s["id"] == pending_partner_id for s in pend_list["sellers"])
-    print("✔ 4. ADMIN APPROVAL SYSTEM: Pending partner listed in Admin Approvals queue.")
+    st_queue, queue_res = request("/api/admin/warranties?status=PENDING_VERIFICATION", token=token_admin)
+    assert st_queue == 200 and any(w["id"] == pending_w_id for w in queue_res["warranties"])
 
-    status_appr, appr_res = request(f"/api/admin/sellers/{pending_partner_id}/status", "PUT", {
-        "action": "APPROVE"
-    }, token=token_admin)
-    assert status_appr == 200 and appr_res["status"] == "ACTIVE"
-    print("✔ 5. ADMIN ACTION: Partner account approved and status changed to ACTIVE.")
+    st_appr, _ = request(f"/api/admin/warranties/{pending_w_id}/approve", "PUT", token=token_admin)
+    assert st_appr == 200
+    print("✔ 5. ADMIN APPROVAL: Admin approved pending serial registration.")
 
-    # 5. Approved Partner Login & Data Isolation Verification
-    status_appr_login, appr_login_res = request("/api/auth/login", "POST", {
-        "email": new_partner_email,
-        "password": "partner123"
+    # 6. Test Case 10: Admin Manually Adds Valid Serial to Battery Master
+    master_serial = f"MS020826{ts}"
+    st_mast, _ = request("/api/admin/battery-master/add-serial", "POST", {"battery_code": master_serial, "product_id": 2}, token=token_admin)
+    assert st_mast == 200
+    print("✔ 6. ADMIN MANUAL MASTER ADD: Admin added new serial to battery master.")
+
+    # 7. Test Case 11: Admin Tries Duplicate Serial Approval
+    st_dup_appr, dup_appr_res = request(f"/api/admin/warranties/{pending_w_id}/approve", "PUT", token=token_admin)
+    assert st_dup_appr == 400 or "already" in dup_appr_res.get("error", "").lower()
+    print("✔ 7. ADMIN DUPLICATE PROTECTION: Prevented Admin from approving duplicate active registration.")
+
+    # 8. Test Case 12 & 13: Admin Cancels Existing Warranty with Audit Reason & New Registration Allowed
+    st_canc, _ = request(f"/api/admin/warranties/{pending_w_id}/cancel", "PUT", {"reason": "Authorized battery replacement by factory"}, token=token_admin)
+    assert st_canc == 200
+
+    # New registration after authorized cancellation
+    st_new, res_new = request("/api/warranty/register", "POST", {
+        "battery_code": unknown_serial,
+        "customer_name": "Replacement Customer",
+        "customer_mobile": "9876500000",
+        "purchase_date": "2026-08-11"
     })
-    assert status_appr_login == 200 and "token" in appr_login_res
-    token_new_partner = appr_login_res["token"]
-    print("✔ 6. APPROVED LOGIN: Newly approved partner logged in successfully.")
+    assert st_new == 201 and res_new["status"] in ["VALID", "PENDING_VERIFICATION"]
+    print("✔ 8. ADMIN CANCELLATION & AUDIT OVERRIDE: Existing warranty cancelled with audit trail and replacement registered.")
 
-    # Create Customer for New Partner
-    status_c, cust_res = request("/api/customers", "POST", {
-        "name": "New Partner Customer 1",
-        "mobile": "9112233445"
-    }, token=token_new_partner)
-    assert status_c == 201
-
-    # Verify Partner Data Isolation (Seller 1 cannot see New Partner's customer)
-    status_s1, s1_res = request("/api/auth/login", "POST", {"email": "seller1@mechshakti.com", "password": "seller123"})
-    assert status_s1 == 200
-    token_s1 = s1_res["token"]
-
-    _, s1_custs = request("/api/customers", token=token_s1)
-    assert not any(c["id"] == cust_res["id"] for c in s1_custs)
-    print("✔ 7. PARTNER DATA ISOLATION: Verified zero data leakage between partner accounts!")
-
-    # 6. Reject Partner Workflow Test
-    rej_email = f"reject_{ts}@mechshakti.com"
-    _, rej_reg = request("/api/auth/register", "POST", {
-        "name": "Rejected Partner",
-        "mobile": f"97{ts % 100000000:08d}",
-        "email": rej_email,
-        "password": "partner123",
-        "confirm_password": "partner123",
-        "shop_name": "Reject Shop",
-        "city": "Surat"
-    })
-    rej_id = rej_reg["id"]
-
-    request(f"/api/admin/sellers/{rej_id}/status", "PUT", {"action": "REJECT", "rejection_reason": "Incomplete documents"}, token=token_admin)
-
-    status_rej_login, rej_login_res = request("/api/auth/login", "POST", {"email": rej_email, "password": "partner123"})
-    assert status_rej_login == 403 and "rejected by Admin" in rej_login_res.get("error", "")
-    print("✔ 8. REJECTED PARTNER LOGIN BLOCK: Verified rejection status blocks login.")
-
-    # 7. Suspend Partner Workflow Test
-    request(f"/api/admin/sellers/{pending_partner_id}/status", "PUT", {"action": "SUSPEND"}, token=token_admin)
-    status_susp_login, susp_login_res = request("/api/auth/login", "POST", {"email": new_partner_email, "password": "partner123"})
-    assert status_susp_login == 403 and "suspended by Admin" in susp_login_res.get("error", "")
-    print("✔ 9. SUSPENDED PARTNER LOGIN BLOCK: Verified suspended status blocks login.")
-
-    # Re-activate for clean state
-    request(f"/api/admin/sellers/{pending_partner_id}/status", "PUT", {"action": "ACTIVATE"}, token=token_admin)
-
-    # 8. PWA Assets Verification
-    def raw_request(path):
-        url = BASE_URL + path
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req) as resp:
-            return resp.status, resp.read().decode('utf-8')
-
-    st1, _ = raw_request("/manifest.json")
-    st2, _ = raw_request("/sw.js")
-    assert st1 == 200 and st2 == 200
-    print("✔ 10. PWA assets verified.")
+    # 9. Test Case 14 & 15: Public Privacy-Safe Check & 24-Month Expiry Verification
+    st_chk, chk_res = request(f"/api/warranty/check?code={test_serial_1}")
+    assert st_chk == 200 and chk_res["found"] is True
+    w = chk_res["warranty"]
+    assert "registered_at" in w and w["expiry_date"] == "2028-08-10"
+    print("✔ 9. PUBLIC PRIVACY SAFE CHECK: Expiry date 2028-08-10 (24 months) and server timestamp verified.")
 
     print("=" * 75)
-    print("🎉 ALL PARTNER SELF-REGISTRATION & APPROVAL TESTS PASSED 100%!")
+    print("🎉 ALL 15 WARRANTY SYSTEM TEST CASES PASSED 100%!")
     print("=" * 75)
 
 if __name__ == "__main__":

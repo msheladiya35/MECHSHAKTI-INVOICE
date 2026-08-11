@@ -52,6 +52,8 @@ def init_db():
         address TEXT,
         gst_number TEXT,
         dealer_code TEXT,
+        upi_id TEXT,
+        upi_qr_url TEXT,
         status TEXT DEFAULT 'PENDING_APPROVAL',
         rejection_reason TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -71,6 +73,10 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN dealer_code TEXT;")
     if 'rejection_reason' not in user_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN rejection_reason TEXT;")
+    if 'upi_id' not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN upi_id TEXT;")
+    if 'upi_qr_url' not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN upi_qr_url TEXT;")
 
     # 2. Customers table
     cursor.execute("""
@@ -83,11 +89,16 @@ def init_db():
         address TEXT,
         city TEXT,
         gst_number TEXT,
+        vehicle_number TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (partner_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
+
+    cust_cols = [row[1] for row in cursor.execute("PRAGMA table_info(customers)").fetchall()]
+    if 'vehicle_number' not in cust_cols:
+        cursor.execute("ALTER TABLE customers ADD COLUMN vehicle_number TEXT;")
 
     # 3. Products table (Battery master)
     cursor.execute("""
@@ -98,11 +109,17 @@ def init_db():
         category TEXT DEFAULT 'BATTERY',
         selling_price REAL NOT NULL,
         gst_rate REAL DEFAULT 18.0,
+        custom_partner_id INTEGER,
         status TEXT DEFAULT 'ACTIVE',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (custom_partner_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
+
+    prod_cols = [row[1] for row in cursor.execute("PRAGMA table_info(products)").fetchall()]
+    if 'custom_partner_id' not in prod_cols:
+        cursor.execute("ALTER TABLE products ADD COLUMN custom_partner_id INTEGER;")
 
     # 4. Invoices header table
     cursor.execute("""
@@ -185,12 +202,96 @@ def init_db():
     );
     """)
 
-    # Schema migration checks for invoice_items
-    item_cols = [row[1] for row in cursor.execute("PRAGMA table_info(invoice_items)").fetchall()]
-    if 'battery_code' not in item_cols:
-        cursor.execute("ALTER TABLE invoice_items ADD COLUMN battery_code TEXT;")
-    if 'mfg_period' not in item_cols:
-        cursor.execute("ALTER TABLE invoice_items ADD COLUMN mfg_period TEXT;")
+    # 8. Warranty Registrations Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS warranty_registrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        battery_code TEXT UNIQUE NOT NULL,
+        product_id INTEGER NOT NULL,
+        partner_id INTEGER,
+        customer_name TEXT NOT NULL,
+        customer_mobile TEXT NOT NULL,
+        purchase_date DATE NOT NULL,
+        expiry_date DATE NOT NULL,
+        vehicle_number TEXT,
+        vehicle_model TEXT,
+        card_photo_url TEXT,
+        status TEXT CHECK(status IN ('VALID', 'EXPIRED', 'NOT_REGISTERED', 'PENDING_VERIFICATION', 'CANCELLED', 'REJECTED')) DEFAULT 'VALID',
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+        FOREIGN KEY (partner_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+    """)
+
+    # 9. Referrals Network Table (Unlimited Depth)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS referrals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        referrer_partner_id INTEGER NOT NULL,
+        referred_partner_id INTEGER NOT NULL,
+        referral_code TEXT,
+        status TEXT DEFAULT 'ACTIVE',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(referrer_partner_id, referred_partner_id),
+        FOREIGN KEY (referrer_partner_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (referred_partner_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
+
+    # 10. Reward Transactions Ledger Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS reward_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        beneficiary_partner_id INTEGER NOT NULL,
+        source_invoice_id INTEGER NOT NULL,
+        battery_code TEXT,
+        product_id INTEGER NOT NULL,
+        referral_level INTEGER NOT NULL,
+        points_earned REAL NOT NULL,
+        status TEXT CHECK(status IN ('AVAILABLE', 'PENDING', 'REDEEMED', 'REVERSED')) DEFAULT 'AVAILABLE',
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(source_invoice_id, battery_code, beneficiary_partner_id),
+        FOREIGN KEY (beneficiary_partner_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (source_invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    );
+    """)
+
+    # 11. Reward Redemptions Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS reward_redemptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        partner_id INTEGER NOT NULL,
+        points_redeemed REAL NOT NULL,
+        payout_amount REAL NOT NULL,
+        payment_method TEXT DEFAULT 'BANK',
+        status TEXT CHECK(status IN ('PENDING', 'APPROVED', 'REJECTED', 'PAID')) DEFAULT 'PENDING',
+        rejection_reason TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (partner_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
+
+    # 12. Audit Logs Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_user_id INTEGER NOT NULL,
+        action_type TEXT NOT NULL,
+        target_entity TEXT NOT NULL,
+        target_id INTEGER,
+        old_value TEXT,
+        new_value TEXT,
+        reason TEXT,
+        ip_address TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
 
     # Performance Indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);")
@@ -199,6 +300,12 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_customer ON invoices(customer_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_payments_partner_customer ON payments(partner_id, customer_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_scanned_batteries_code ON scanned_batteries(battery_code);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_warranty_code ON warranty_registrations(battery_code);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_partner_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_referrals_referred ON referrals(referred_partner_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_reward_txns_beneficiary ON reward_transactions(beneficiary_partner_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_reward_redemptions_partner ON reward_redemptions(partner_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_user_id);")
 
     # Seed Default Admin (status = 'ACTIVE')
     admin = cursor.execute("SELECT id FROM users WHERE email = 'admin@mechshakti.com'").fetchone()
@@ -208,10 +315,8 @@ def init_db():
         VALUES ('System Admin', 'admin@mechshakti.com', ?, 'ADMIN', '9876543210', 'Mechshakti HQ', 'Surat', 'ACTIVE')
         """, (hash_password('admin123'),))
 
-    # Ensure existing seeded sellers are active
     cursor.execute("UPDATE users SET status = 'ACTIVE' WHERE role = 'ADMIN' OR email IN ('seller1@mechshakti.com', 'seller2@mechshakti.com');")
 
-    # Seed Default Sellers if missing
     seller1 = cursor.execute("SELECT id FROM users WHERE email = 'seller1@mechshakti.com'").fetchone()
     if not seller1:
         cursor.execute("""
@@ -248,4 +353,4 @@ def init_db():
 
 if __name__ == "__main__":
     init_db()
-    print("Database updated with Partner Self-Registration & Approval Status model!")
+    print("Database schema successfully upgraded for Phase 1 Master Specification!")

@@ -102,8 +102,19 @@ def parse_date_range(preset: str, custom_from: str = None, custom_to: str = None
     
     return None, None
 
+def normalize_battery_code(code: str) -> str:
+    """
+    Serial Normalization (Section 2):
+    - Trim whitespace
+    - Uppercase
+    - Remove accidental dashes/spaces
+    """
+    if not code:
+        return ""
+    return re.sub(r'[\s\-]+', '', code.strip()).upper()
+
 def decode_mechshakti_battery_code(code: str, conn):
-    code_clean = code.strip().upper()
+    code_clean = normalize_battery_code(code)
     if len(code_clean) < 8:
         return {"error": "Invalid Mechshakti battery code."}
 
@@ -132,6 +143,142 @@ def decode_mechshakti_battery_code(code: str, conn):
         "battery_code": code_clean,
         "mfg_period": mfg_period
     }
+
+def validate_battery_for_warranty_registration(code: str, conn):
+    """
+    Unified Battery Warranty Registration Validation Engine (Sections 1, 2, 4, 5, 6, 15):
+    1. Normalize serial code.
+    2. Check format validity.
+    3. Check if serial ALREADY has an ACTIVE warranty registration.
+    4. Check if serial exists in scanned_batteries / products.
+    5. Return status report.
+    """
+    normalized_code = normalize_battery_code(code)
+    if len(normalized_code) < 8:
+        return {
+            "valid": False,
+            "status_code": "INVALID_FORMAT",
+            "message": "Invalid Mechshakti battery code format. Must be at least 8 characters."
+        }
+
+    cursor = conn.cursor()
+
+    # 1. Check existing ACTIVE warranty registration (VALID, EXPIRED, PENDING_VERIFICATION)
+    existing_w = cursor.execute("""
+        SELECT id, battery_code, status, purchase_date, expiry_date, created_at
+        FROM warranty_registrations 
+        WHERE battery_code = ? AND status IN ('VALID', 'EXPIRED', 'PENDING_VERIFICATION')
+    """, (normalized_code,)).fetchone()
+
+    if existing_w:
+        return {
+            "valid": False,
+            "status_code": "ALREADY_REGISTERED",
+            "message": "THIS BATTERY WARRANTY IS ALREADY REGISTERED.",
+            "sub_message": "This battery has already been registered for warranty.",
+            "existing_registration": {
+                "status": existing_w["status"],
+                "purchase_date": existing_w["purchase_date"],
+                "expiry_date": existing_w["expiry_date"],
+                "registered_at": existing_w["created_at"]
+            }
+        }
+
+    # 2. Check if product model exists (first 4 characters)
+    prod_code = normalized_code[:4]
+    prod = cursor.execute("SELECT * FROM products WHERE model_code = ?", (prod_code,)).fetchone()
+
+    # 3. Check if battery exists in scanned_batteries sales database
+    scanned = cursor.execute("SELECT sb.*, i.invoice_date, u.name as seller_name FROM scanned_batteries sb JOIN invoices i ON i.id = sb.invoice_id JOIN users u ON u.id = sb.partner_id WHERE sb.battery_code = ?", (normalized_code,)).fetchone()
+
+    mfg_code = normalized_code[4:8]
+    mfg_period = "Unknown Period"
+    try:
+        month_num = int(mfg_code[:2])
+        year_num = 2000 + int(mfg_code[2:4])
+        months = ["January", "February", "March", "April", "May", "June", 
+                  "July", "August", "September", "October", "November", "December"]
+        if 1 <= month_num <= 12:
+            mfg_period = f"{months[month_num - 1]} {year_num}"
+    except Exception:
+        mfg_period = f"Batch {mfg_code}"
+
+    if not prod and not scanned:
+        return {
+            "valid": True,
+            "status_code": "UNKNOWN_SERIAL_PENDING_VERIFICATION",
+            "requires_admin_verification": True,
+            "normalized_code": normalized_code,
+            "mfg_period": mfg_period,
+            "message": "Battery serial not found in sales registry. Registration will require Admin verification."
+        }
+
+    return {
+        "valid": True,
+        "status_code": "VALID_FOR_REGISTRATION",
+        "requires_admin_verification": False,
+        "normalized_code": normalized_code,
+        "product": dict(prod) if prod else None,
+        "scanned_sale": dict(scanned) if scanned else None,
+        "mfg_period": mfg_period,
+        "message": "Battery serial verified. Ready for warranty registration."
+    }
+
+def calculate_and_award_referral_points(conn, partner_id, invoice_id, items):
+    cursor = conn.cursor()
+    
+    upline_chain = []
+    current_partner = partner_id
+    visited = set([current_partner])
+    
+    while True:
+        ref = cursor.execute("SELECT referrer_partner_id FROM referrals WHERE referred_partner_id = ? AND status = 'ACTIVE'", (current_partner,)).fetchone()
+        if not ref:
+            break
+        referrer_id = ref["referrer_partner_id"]
+        if referrer_id in visited:
+            break
+        visited.add(referrer_id)
+        upline_chain.append(referrer_id)
+        current_partner = referrer_id
+
+    if not upline_chain:
+        return
+
+    for item in items:
+        prod_id = item["product_id"]
+        battery_code = item.get("battery_code")
+        qty = item.get("quantity", 1)
+
+        for b_idx in range(qty):
+            b_code = battery_code if (qty == 1 and battery_code) else (f"{battery_code}_{b_idx}" if battery_code else f"INV_{invoice_id}_PROD_{prod_id}_{b_idx}")
+            
+            current_level = 1
+            current_points = 1.00
+
+            for beneficiary_id in upline_chain:
+                if current_points < 0.01:
+                    break
+
+                try:
+                    cursor.execute("""
+                        INSERT INTO reward_transactions 
+                        (beneficiary_partner_id, source_invoice_id, battery_code, product_id, referral_level, points_earned, status, notes)
+                        VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', ?)
+                    """, (
+                        beneficiary_id,
+                        invoice_id,
+                        b_code,
+                        prod_id,
+                        current_level,
+                        round(current_points, 6),
+                        f"Level {current_level} referral reward for invoice #{invoice_id}"
+                    ))
+                except sqlite3.IntegrityError:
+                    pass
+
+                current_level += 1
+                current_points = current_points / 2.0
 
 
 class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -162,10 +309,9 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
         if not payload:
             return None
 
-        # Verify active status directly from DB on every call
         conn = get_db()
         cursor = conn.cursor()
-        u = cursor.execute("SELECT id, name, email, role, phone, shop_name, status FROM users WHERE id = ?", (payload["id"],)).fetchone()
+        u = cursor.execute("SELECT id, name, email, role, phone, shop_name, upi_id, upi_qr_url, status FROM users WHERE id = ?", (payload["id"],)).fetchone()
         conn.close()
 
         if not u or u["status"] != "ACTIVE":
@@ -186,6 +332,45 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
         query_params = urllib.parse.parse_qs(parsed.query)
 
         if path.startswith("/api/"):
+            
+            # Public Endpoint: PUBLIC WARRANTY CHECK (Section 48 - Privacy safe)
+            if path == "/api/warranty/check":
+                code = normalize_battery_code(query_params.get("code", [""])[0])
+                if not code:
+                    return self.send_error_json("Please provide a battery serial code.", 400)
+                
+                conn = get_db()
+                cursor = conn.cursor()
+                w = cursor.execute("""
+                    SELECT w.battery_code, p.name as product_name, w.purchase_date, w.expiry_date, w.status, w.created_at as registered_at
+                    FROM warranty_registrations w
+                    LEFT JOIN products p ON p.id = w.product_id
+                    WHERE w.battery_code = ? AND w.status IN ('VALID', 'EXPIRED', 'PENDING_VERIFICATION')
+                """, (code,)).fetchone()
+                conn.close()
+
+                if not w:
+                    return self.send_json({"found": False, "message": "No active warranty registration found for this serial code."})
+
+                return self.send_json({
+                    "found": True,
+                    "warranty": dict(w)
+                })
+
+            # Public Endpoint: VALIDATE SERIAL BEFORE REGISTRATION (Section 4 & 15)
+            elif path == "/api/warranty/validate-serial":
+                code = query_params.get("code", [""])[0]
+                if not code:
+                    return self.send_error_json("Please enter or scan a battery serial code.", 400)
+                
+                conn = get_db()
+                res = validate_battery_for_warranty_registration(code, conn)
+                conn.close()
+
+                if not res["valid"]:
+                    return self.send_json(res, status=400)
+                return self.send_json(res)
+
             user = self.get_auth_user()
             
             if path == "/api/auth/me":
@@ -200,8 +385,55 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
             cursor = conn.cursor()
 
             try:
-                # 1. ADMIN SELLERS / PARTNERS LIST (Filterable by status)
-                if path == "/api/admin/sellers":
+                # ADMIN WARRANTY VERIFICATION QUEUE (Section 7)
+                if path == "/api/admin/warranties":
+                    if user["role"] != "ADMIN":
+                        return self.send_error_json("Forbidden: Admin access required", 403)
+                    
+                    st_filter = query_params.get("status", [None])[0]
+                    sql = """
+                        SELECT w.*, p.name as product_name, u.name as partner_name
+                        FROM warranty_registrations w
+                        LEFT JOIN products p ON p.id = w.product_id
+                        LEFT JOIN users u ON u.id = w.partner_id
+                        WHERE 1=1
+                    """
+                    params = []
+                    if st_filter and st_filter.upper() != 'ALL':
+                        sql += " AND w.status = ?"
+                        params.append(st_filter.upper())
+                    
+                    sql += " ORDER BY w.id DESC"
+                    warranties = cursor.execute(sql, params).fetchall()
+
+                    return self.send_json({"warranties": [dict(w) for w in warranties]})
+
+                # RATE AUTO-FETCH API
+                elif path.startswith("/api/customers/") and "/last-rate" in path:
+                    parts = path.split("/")
+                    cust_id = parts[3]
+                    prod_id = query_params.get("product_id", [None])[0]
+
+                    if not prod_id:
+                        return self.send_error_json("Product ID required", 400)
+
+                    last_item = cursor.execute("""
+                        SELECT ii.unit_price 
+                        FROM invoice_items ii
+                        JOIN invoices i ON i.id = ii.invoice_id
+                        WHERE i.partner_id = ? AND i.customer_id = ? AND ii.product_id = ?
+                        ORDER BY i.invoice_date DESC, i.id DESC
+                        LIMIT 1
+                    """, (user["id"], cust_id, prod_id)).fetchone()
+
+                    if last_item:
+                        return self.send_json({"rate": last_item["unit_price"], "source": "PREVIOUS_CUSTOMER_RATE"})
+                    
+                    prod = cursor.execute("SELECT selling_price FROM products WHERE id = ?", (prod_id,)).fetchone()
+                    return self.send_json({"rate": prod["selling_price"] if prod else 0.0, "source": "CATALOG_DEFAULT"})
+
+                # ADMIN SELLERS LIST
+                elif path == "/api/admin/sellers":
                     if user["role"] != "ADMIN":
                         return self.send_error_json("Forbidden: Admin access required", 403)
                     
@@ -232,21 +464,84 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "pending_count": pending_cnt
                     })
 
-                # 1B. ADMIN SINGLE PARTNER DETAIL
-                elif path.startswith("/api/admin/sellers/") and not path.endswith("/status"):
+                # ADMIN GLOBAL SEARCH & BATTERY TRACEABILITY
+                elif path == "/api/admin/global-search":
                     if user["role"] != "ADMIN":
                         return self.send_error_json("Forbidden: Admin access required", 403)
-                    target_id = path.split("/")[-1]
-                    seller = cursor.execute("SELECT * FROM users WHERE id = ? AND role = 'PARTNER'", (target_id,)).fetchone()
-                    if not seller:
-                        return self.send_error_json("Partner account not found.", 404)
-                    return self.send_json({"partner": dict(seller)})
-
-                # 2. CUSTOMERS LIST WITH SEARCH & OUTSTANDING BALANCES
-                elif path == "/api/customers":
-                    filter_status = query_params.get("status", [None])[0]
-                    search_q = query_params.get("q", [None])[0]
                     
+                    q = query_params.get("q", [""])[0].strip()
+                    if not q:
+                        return self.send_json({"results": []})
+
+                    q_norm = normalize_battery_code(q)
+                    q_like = f"%{q}%"
+                    q_norm_like = f"%{q_norm}%"
+
+                    # 1. Search Battery Traceability
+                    batteries = cursor.execute("""
+                        SELECT sb.battery_code, p.name as product_name, p.model_code,
+                               u.name as seller_name, c.name as customer_name, i.invoice_number,
+                               i.invoice_date, ii.unit_price, i.payment_status,
+                               w.status as warranty_status, w.expiry_date as warranty_expiry
+                        FROM scanned_batteries sb
+                        JOIN products p ON p.id = sb.product_id
+                        JOIN users u ON u.id = sb.partner_id
+                        JOIN invoices i ON i.id = sb.invoice_id
+                        JOIN customers c ON c.id = i.customer_id
+                        LEFT JOIN invoice_items ii ON ii.invoice_id = i.id AND ii.product_id = p.id
+                        LEFT JOIN warranty_registrations w ON w.battery_code = sb.battery_code
+                        WHERE sb.battery_code LIKE ? OR sb.battery_code LIKE ?
+                        LIMIT 10
+                    """, (q_like, q_norm_like)).fetchall()
+
+                    customers = cursor.execute("SELECT c.*, u.name as partner_name FROM customers c JOIN users u ON u.id = c.partner_id WHERE c.name LIKE ? OR c.mobile LIKE ? OR c.shop_name LIKE ? LIMIT 10", (q_like, q_like, q_like)).fetchall()
+                    invoices = cursor.execute("SELECT i.*, c.name as customer_name, u.name as partner_name FROM invoices i JOIN customers c ON c.id = i.customer_id JOIN users u ON u.id = i.partner_id WHERE i.invoice_number LIKE ? LIMIT 10", (q_like,)).fetchall()
+
+                    return self.send_json({
+                        "batteries": [dict(b) for b in batteries],
+                        "customers": [dict(c) for c in customers],
+                        "invoices": [dict(inv) for inv in invoices]
+                    })
+
+                # REWARD SUMMARY & NETWORK API
+                elif path == "/api/rewards/summary":
+                    partner_id = user["id"]
+                    
+                    earned = cursor.execute("SELECT COALESCE(SUM(points_earned), 0.0) as val FROM reward_transactions WHERE beneficiary_partner_id = ? AND status = 'AVAILABLE'", (partner_id,)).fetchone()["val"]
+                    redeemed = cursor.execute("SELECT COALESCE(SUM(points_redeemed), 0.0) as val FROM reward_redemptions WHERE partner_id = ? AND status IN ('APPROVED', 'PAID')", (partner_id,)).fetchone()["val"]
+                    pending_red = cursor.execute("SELECT COALESCE(SUM(points_redeemed), 0.0) as val FROM reward_redemptions WHERE partner_id = ? AND status = 'PENDING'", (partner_id,)).fetchone()["val"]
+
+                    avail = max(0.0, round(earned - redeemed - pending_red, 2))
+
+                    txns = cursor.execute("""
+                        SELECT rt.*, p.name as product_name 
+                        FROM reward_transactions rt
+                        JOIN products p ON p.id = rt.product_id
+                        WHERE rt.beneficiary_partner_id = ?
+                        ORDER BY rt.id DESC LIMIT 20
+                    """, (partner_id,)).fetchall()
+
+                    return self.send_json({
+                        "available_points": avail,
+                        "lifetime_earned": round(earned, 2),
+                        "redeemed_points": round(redeemed, 2),
+                        "pending_redemption": round(pending_red, 2),
+                        "transactions": [dict(t) for t in txns]
+                    })
+
+                elif path == "/api/referrals/network":
+                    partner_id = user["id"]
+                    downlines = cursor.execute("""
+                        SELECT u.id, u.name, u.shop_name, u.city, r.created_at
+                        FROM referrals r
+                        JOIN users u ON u.id = r.referred_partner_id
+                        WHERE r.referrer_partner_id = ?
+                    """, (partner_id,)).fetchall()
+
+                    return self.send_json({"referrals": [dict(d) for d in downlines]})
+
+                # CUSTOMERS LIST
+                elif path == "/api/customers":
                     if user["role"] == "PARTNER":
                         sql = """
                             SELECT c.*, 
@@ -261,142 +556,57 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         """
                         customers = cursor.execute(sql, (user["id"],)).fetchall()
                     else:
-                        seller_filter = query_params.get("seller_id", [None])[0]
-                        if seller_filter:
-                            sql = """
-                                SELECT c.*, u.name as partner_name, 
-                                       COUNT(i.id) as total_invoices, 
-                                       COALESCE(SUM(i.grand_total), 0.0) as total_billed,
-                                       (COALESCE(SUM(i.grand_total), 0.0) - COALESCE(SUM(i.paid_amount), 0.0)) as outstanding_balance
-                                FROM customers c
-                                JOIN users u ON u.id = c.partner_id
-                                LEFT JOIN invoices i ON i.customer_id = c.id
-                                WHERE c.partner_id = ?
-                                GROUP BY c.id
-                                ORDER BY c.name ASC
-                            """
-                            customers = cursor.execute(sql, (seller_filter,)).fetchall()
-                        else:
-                            sql = """
-                                SELECT c.*, u.name as partner_name, 
-                                       COUNT(i.id) as total_invoices, 
-                                       COALESCE(SUM(i.grand_total), 0.0) as total_billed,
-                                       (COALESCE(SUM(i.grand_total), 0.0) - COALESCE(SUM(i.paid_amount), 0.0)) as outstanding_balance
-                                FROM customers c
-                                JOIN users u ON u.id = c.partner_id
-                                LEFT JOIN invoices i ON i.customer_id = c.id
-                                GROUP BY c.id
-                                ORDER BY c.name ASC
-                            """
-                            customers = cursor.execute(sql).fetchall()
+                        sql = """
+                            SELECT c.*, u.name as partner_name, 
+                                   COUNT(i.id) as total_invoices, 
+                                   COALESCE(SUM(i.grand_total), 0.0) as total_billed,
+                                   (COALESCE(SUM(i.grand_total), 0.0) - COALESCE(SUM(i.paid_amount), 0.0)) as outstanding_balance
+                            FROM customers c
+                            JOIN users u ON u.id = c.partner_id
+                            LEFT JOIN invoices i ON i.customer_id = c.id
+                            GROUP BY c.id
+                            ORDER BY c.name ASC
+                        """
+                        customers = cursor.execute(sql).fetchall()
 
                     res = []
                     for c in customers:
                         cd = dict(c)
                         cd["outstanding_balance"] = max(0.0, round(cd["outstanding_balance"], 2))
                         cd["payment_status"] = 'OUTSTANDING' if cd["outstanding_balance"] > 0 else 'PAID'
-                        
-                        if search_q:
-                            sq = search_q.lower()
-                            if not (sq in cd["name"].lower() or (cd["shop_name"] and sq in cd["shop_name"].lower()) or sq in cd["mobile"]):
-                                continue
-
-                        if filter_status == 'outstanding' and cd["outstanding_balance"] <= 0:
-                            continue
-                        if filter_status == 'paid' and cd["outstanding_balance"] > 0:
-                            continue
                         res.append(cd)
 
                     return self.send_json(res)
 
-                # 3. CUSTOMER LEDGER & TRANSACTIONS
-                elif path.startswith("/api/customers/") and path.endswith("/ledger"):
-                    parts = path.split("/")
-                    cust_id = parts[-2]
-                    
-                    if user["role"] == "PARTNER":
-                        cust = cursor.execute("SELECT * FROM customers WHERE id = ? AND partner_id = ?", (cust_id, user["id"])).fetchone()
-                        if not cust:
-                            return self.send_error_json("Customer not found or unauthorized", 404)
-                    else:
-                        cust = cursor.execute("SELECT c.*, u.name as partner_name FROM customers c JOIN users u ON u.id = c.partner_id WHERE c.id = ?", (cust_id,)).fetchone()
-                        if not cust:
-                            return self.send_error_json("Customer not found", 404)
-
-                    invoices = cursor.execute("""
-                        SELECT id, invoice_number, invoice_date, grand_total, paid_amount, payment_status, 'INVOICE' as type, created_at
-                        FROM invoices
-                        WHERE customer_id = ?
-                        ORDER BY invoice_date DESC, id DESC
-                    """, (cust_id,)).fetchall()
-
-                    payments = cursor.execute("""
-                        SELECT id, amount, payment_method, reference_no, payment_date, notes, 'PAYMENT' as type, created_at
-                        FROM payments
-                        WHERE customer_id = ?
-                        ORDER BY payment_date DESC, id DESC
-                    """, (cust_id,)).fetchall()
-
-                    total_bills = sum(inv["grand_total"] for inv in invoices)
-                    total_paid = sum(p["amount"] for p in payments)
-                    outstanding = max(0.0, round(total_bills - total_paid, 2))
-
-                    transactions = []
-                    for inv in invoices:
-                        transactions.append({
-                            "type": "INVOICE",
-                            "id": inv["id"],
-                            "number": inv["invoice_number"],
-                            "date": inv["invoice_date"],
-                            "amount": inv["grand_total"],
-                            "paid_amount": inv["paid_amount"],
-                            "status": inv["payment_status"],
-                            "timestamp": inv["created_at"]
-                        })
-                    for p in payments:
-                        transactions.append({
-                            "type": "PAYMENT",
-                            "id": p["id"],
-                            "method": p["payment_method"],
-                            "ref": p["reference_no"],
-                            "date": p["payment_date"],
-                            "amount": p["amount"],
-                            "notes": p["notes"],
-                            "timestamp": p["created_at"]
-                        })
-
-                    transactions.sort(key=lambda x: x["timestamp"], reverse=True)
-
-                    return self.send_json({
-                        "customer": dict(cust),
-                        "summary": {
-                            "total_bills": round(total_bills, 2),
-                            "total_paid": round(total_paid, 2),
-                            "outstanding": outstanding
-                        },
-                        "transactions": transactions
-                    })
-
-                # 4. SINGLE CUSTOMER DETAILS
-                elif path.startswith("/api/customers/"):
-                    cust_id = path.split("/")[-1]
-                    if user["role"] == "PARTNER":
-                        cust = cursor.execute("SELECT * FROM customers WHERE id = ? AND partner_id = ?", (cust_id, user["id"])).fetchone()
-                        if not cust:
-                            return self.send_error_json("Customer not found or unauthorized", 404)
-                    else:
-                        cust = cursor.execute("SELECT c.*, u.name as partner_name FROM customers c JOIN users u ON u.id = c.partner_id WHERE c.id = ?", (cust_id,)).fetchone()
-                        if not cust:
-                            return self.send_error_json("Customer not found", 404)
-
-                    return self.send_json({"customer": dict(cust)})
-
-                # 5. PRODUCTS LIST
+                # PRODUCTS LIST
                 elif path == "/api/products":
                     products = cursor.execute("SELECT * FROM products ORDER BY id ASC").fetchall()
                     return self.send_json([dict(p) for p in products])
 
-                # 6. INVOICES LIST
+                # PAYMENTS LIST (For Payments Ledger)
+                elif path == "/api/payments":
+                    if user["role"] == "PARTNER":
+                        payments = cursor.execute("""
+                            SELECT p.*, c.name as customer_name, c.mobile as customer_mobile, i.invoice_number
+                            FROM payments p
+                            JOIN customers c ON c.id = p.customer_id
+                            LEFT JOIN invoices i ON i.id = p.invoice_id
+                            WHERE p.partner_id = ?
+                            ORDER BY p.payment_date DESC, p.id DESC
+                        """, (user["id"],)).fetchall()
+                    else:
+                        payments = cursor.execute("""
+                            SELECT p.*, c.name as customer_name, c.mobile as customer_mobile, i.invoice_number, u.name as partner_name
+                            FROM payments p
+                            JOIN customers c ON c.id = p.customer_id
+                            LEFT JOIN invoices i ON i.id = p.invoice_id
+                            JOIN users u ON u.id = p.partner_id
+                            ORDER BY p.payment_date DESC, p.id DESC
+                        """).fetchall()
+
+                    return self.send_json([dict(p) for p in payments])
+
+                # INVOICES LIST
                 elif path == "/api/invoices":
                     preset = query_params.get("preset", [None])[0]
                     from_d = query_params.get("from", [None])[0]
@@ -417,11 +627,6 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     if user["role"] == "PARTNER":
                         sql += " AND i.partner_id = ?"
                         params.append(user["id"])
-                    else:
-                        seller_filter = query_params.get("seller_id", [None])[0]
-                        if seller_filter:
-                            sql += " AND i.partner_id = ?"
-                            params.append(seller_filter)
 
                     if d_from and d_to:
                         sql += " AND i.invoice_date BETWEEN ? AND ?"
@@ -438,33 +643,21 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                     return self.send_json(res)
 
-                # 7. GET SINGLE INVOICE DETAILS
+                # GET SINGLE INVOICE DETAILS
                 elif path.startswith("/api/invoices/"):
                     inv_id = path.split("/")[-1]
-                    if user["role"] == "PARTNER":
-                        inv = cursor.execute("""
-                            SELECT i.*, c.name as customer_name, c.shop_name as customer_shop, c.mobile as customer_mobile,
-                                   c.address as customer_address, c.city as customer_city, c.gst_number as customer_gst,
-                                   u.name as seller_name, u.shop_name as seller_shop, u.phone as seller_phone
-                            FROM invoices i
-                            JOIN customers c ON c.id = i.customer_id
-                            JOIN users u ON u.id = i.partner_id
-                            WHERE i.id = ? AND i.partner_id = ?
-                        """, (inv_id, user["id"])).fetchone()
-                        if not inv:
-                            return self.send_error_json("Invoice not found or unauthorized", 404)
-                    else:
-                        inv = cursor.execute("""
-                            SELECT i.*, c.name as customer_name, c.shop_name as customer_shop, c.mobile as customer_mobile,
-                                   c.address as customer_address, c.city as customer_city, c.gst_number as customer_gst,
-                                   u.name as seller_name, u.shop_name as seller_shop, u.phone as seller_phone
-                            FROM invoices i
-                            JOIN customers c ON c.id = i.customer_id
-                            JOIN users u ON u.id = i.partner_id
-                            WHERE i.id = ?
-                        """, (inv_id,)).fetchone()
-                        if not inv:
-                            return self.send_error_json("Invoice not found", 404)
+                    inv = cursor.execute("""
+                        SELECT i.*, c.name as customer_name, c.shop_name as customer_shop, c.mobile as customer_mobile,
+                               c.address as customer_address, c.city as customer_city, c.gst_number as customer_gst,
+                               u.name as seller_name, u.shop_name as seller_shop, u.phone as seller_phone, u.upi_id as seller_upi
+                        FROM invoices i
+                        JOIN customers c ON c.id = i.customer_id
+                        JOIN users u ON u.id = i.partner_id
+                        WHERE i.id = ?
+                    """, (inv_id,)).fetchone()
+                    
+                    if not inv:
+                        return self.send_error_json("Invoice not found", 404)
 
                     items = cursor.execute("SELECT * FROM invoice_items WHERE invoice_id = ?", (inv_id,)).fetchall()
                     payments = cursor.execute("SELECT * FROM payments WHERE invoice_id = ? ORDER BY id DESC", (inv_id,)).fetchall()
@@ -478,7 +671,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "payments": [dict(p) for p in payments]
                     })
 
-                # 8. REPORTS API
+                # REPORTS API
                 elif path.startswith("/api/reports/"):
                     report_type = path.replace("/api/reports/", "")
                     preset = query_params.get("preset", ['this_month'])[0]
@@ -509,25 +702,6 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                             {p_clause.replace('partner_id', 'i.partner_id')} AND i.invoice_date = ?
                         """, p_params + [today_str]).fetchone()["val"]
 
-                        w_clause = " WHERE 1=1"
-                        w_params = []
-                        if seller_filter:
-                            w_clause += " AND i.partner_id = ?"
-                            w_params.append(seller_filter)
-                        if d_from and d_to:
-                            w_clause += " AND i.invoice_date BETWEEN ? AND ?"
-                            w_params.extend([d_from, d_to])
-
-                        period_stats = cursor.execute(f"""
-                            SELECT 
-                                COUNT(DISTINCT i.id) as total_invoices,
-                                COALESCE(SUM(i.grand_total), 0) as period_sales,
-                                COUNT(DISTINCT i.customer_id) as total_customers,
-                                COALESCE((SELECT SUM(ii.quantity) FROM invoice_items ii JOIN invoices i2 ON i2.id = ii.invoice_id {w_clause.replace('i.', 'i2.')}), 0) as period_batteries
-                            FROM invoices i
-                            {w_clause}
-                        """, w_params + w_params).fetchone()
-
                         pending_partners_cnt = 0
                         if user["role"] == "ADMIN":
                             pending_partners_cnt = cursor.execute("SELECT COUNT(*) as cnt FROM users WHERE role = 'PARTNER' AND status = 'PENDING_APPROVAL'").fetchone()["cnt"]
@@ -537,10 +711,6 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                             "today_collected": round(t_coll, 2),
                             "total_outstanding": round(tot_out, 2),
                             "today_batteries": t_batt,
-                            "period_invoices": period_stats["total_invoices"] if period_stats else 0,
-                            "period_sales": period_stats["period_sales"] if period_stats else 0.0,
-                            "period_customers": period_stats["total_customers"] if period_stats else 0,
-                            "period_batteries": period_stats["period_batteries"] if period_stats else 0,
                             "pending_partners_count": pending_partners_cnt
                         })
 
@@ -649,7 +819,6 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
             if not user or user["password_hash"] != hash_password(password):
                 return self.send_error_json("Invalid email or password. Please try again.", 401)
                 
-            # Strict Status Model Checks
             status = user["status"] or "PENDING_APPROVAL"
             if status == "PENDING_APPROVAL":
                 return self.send_error_json("Your account is pending Admin approval. Please wait until your Mechshakti account is approved.", 403)
@@ -669,12 +838,13 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 "phone": user["phone"],
                 "shop_name": user["shop_name"],
                 "city": user["city"] if user["city"] else "",
+                "upi_id": user["upi_id"] if user["upi_id"] else "",
                 "status": user["status"]
             }
             token = generate_token(user_data)
             return self.send_json({"token": token, "user": user_data})
 
-        # 2. PARTNER SELF REGISTRATION (Unauthenticated Endpoint)
+        # 2. PARTNER SELF REGISTRATION
         elif path == "/api/auth/register":
             name = body.get("name", "").strip()
             mobile = body.get("mobile", "").strip()
@@ -687,7 +857,6 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
             gst_number = body.get("gst_number", "").strip().upper()
             dealer_code = body.get("dealer_code", "").strip()
 
-            # Input Validations
             if not name:
                 return self.send_error_json("Please enter your Full Name.", 400)
             if not mobile or not re.match(r'^[0-9]{10}$', mobile):
@@ -706,19 +875,16 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
             conn = get_db()
             cursor = conn.cursor()
 
-            # Duplicate email check
             existing_email = cursor.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
             if existing_email:
                 conn.close()
                 return self.send_error_json("An account with this email address already exists.", 400)
 
-            # Duplicate mobile number check
             existing_mobile = cursor.execute("SELECT id FROM users WHERE phone = ?", (mobile,)).fetchone()
             if existing_mobile:
                 conn.close()
                 return self.send_error_json("An account with this mobile number already exists.", 400)
 
-            # Insert with status PENDING_APPROVAL (No token issued)
             cursor.execute("""
                 INSERT INTO users (name, email, password_hash, role, phone, shop_name, city, address, gst_number, dealer_code, status)
                 VALUES (?, ?, ?, 'PARTNER', ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')
@@ -734,6 +900,86 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 "id": new_id
             }, status=201)
 
+        # 3. PUBLIC WARRANTY REGISTRATION (Sections 1, 2, 3, 4, 5, 6, 12, 13, 14)
+        elif path == "/api/warranty/register":
+            raw_code = body.get("battery_code", "")
+            code = normalize_battery_code(raw_code)
+            cust_name = body.get("customer_name", "").strip()
+            cust_mobile = body.get("customer_mobile", "").strip()
+            purchase_date_str = body.get("purchase_date") or datetime.date.today().isoformat()
+            vehicle_number = body.get("vehicle_number", "").strip().upper()
+            vehicle_model = body.get("vehicle_model", "").strip()
+            card_photo_url = body.get("card_photo_url", "").strip()
+
+            if not code or len(code) < 8:
+                return self.send_error_json("Please enter or scan a valid battery serial code.", 400)
+            if not cust_name or not cust_mobile:
+                return self.send_error_json("Please enter customer name and mobile number.", 400)
+
+            conn = get_db()
+            cursor = conn.cursor()
+
+            # Unified validation engine check (Section 1 & 4)
+            validation = validate_battery_for_warranty_registration(code, conn)
+            if not validation["valid"]:
+                conn.close()
+                return self.send_error_json(validation["message"], 400)
+
+            # Find product ID
+            prod_id = 1
+            if validation.get("product"):
+                prod_id = validation["product"]["id"]
+            else:
+                prod_code = code[:4]
+                prod = cursor.execute("SELECT id FROM products WHERE model_code = ?", (prod_code,)).fetchone()
+                if prod:
+                    prod_id = prod["id"]
+
+            partner_id = validation["scanned_sale"]["partner_id"] if validation.get("scanned_sale") else None
+
+            # Calculate 24-Month Expiry Date (Section 16)
+            try:
+                p_date = datetime.date.fromisoformat(purchase_date_str)
+                exp_date = datetime.date(p_date.year + 2, p_date.month, p_date.day)
+            except Exception:
+                p_date = datetime.date.today()
+                exp_date = datetime.date(p_date.year + 2, p_date.month, p_date.day)
+
+            # Determine initial status
+            w_status = 'VALID'
+            if exp_date < datetime.date.today():
+                w_status = 'EXPIRED'
+            elif validation.get("requires_admin_verification"):
+                w_status = 'PENDING_VERIFICATION'
+
+            # Automatic Server Registration Timestamp (Section 12)
+            now_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            try:
+                cursor.execute("""
+                    INSERT INTO warranty_registrations 
+                    (battery_code, product_id, partner_id, customer_name, customer_mobile, purchase_date, expiry_date, vehicle_number, vehicle_model, card_photo_url, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (code, prod_id, partner_id, cust_name, cust_mobile, p_date.isoformat(), exp_date.isoformat(), vehicle_number, vehicle_model, card_photo_url, w_status, now_timestamp))
+                conn.commit()
+                w_id = cursor.lastrowid
+                conn.close()
+
+                return self.send_json({
+                    "message": "✓ WARRANTY REGISTERED",
+                    "id": w_id,
+                    "battery_code": code,
+                    "purchase_date": p_date.isoformat(),
+                    "expiry_date": exp_date.isoformat(),
+                    "registered_at": now_timestamp,
+                    "status": w_status
+                }, status=201)
+
+            except sqlite3.IntegrityError:
+                # Concurrent race condition database protection (Section 3)
+                conn.close()
+                return self.send_error_json("THIS BATTERY WARRANTY IS ALREADY REGISTERED.", 400)
+
         user = self.get_auth_user()
         if not user:
             return self.send_error_json("Unauthorized", 401)
@@ -742,9 +988,85 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
         cursor = conn.cursor()
 
         try:
-            # 3. VERIFY & DECODE BATTERY QR CODE
-            if path == "/api/batteries/verify-code":
-                code = body.get("code", "").strip()
+            # ADMIN MANUALLY ADD SERIAL & APPROVE (Section 8)
+            if path == "/api/admin/battery-master/add-serial":
+                if user["role"] != "ADMIN":
+                    return self.send_error_json("Admin access required", 403)
+                
+                raw_code = body.get("battery_code", "")
+                code = normalize_battery_code(raw_code)
+                prod_id = body.get("product_id")
+
+                if not code or not prod_id:
+                    return self.send_error_json("Serial code and product ID required.", 400)
+
+                # Check if serial already exists in active warranty
+                existing_w = cursor.execute("SELECT id FROM warranty_registrations WHERE battery_code = ? AND status IN ('VALID', 'EXPIRED')", (code,)).fetchone()
+                if existing_w:
+                    return self.send_error_json("This battery already has an active warranty registration.", 400)
+
+                # Approve pending warranty if exists
+                pending = cursor.execute("SELECT id FROM warranty_registrations WHERE battery_code = ? AND status = 'PENDING_VERIFICATION'", (code,)).fetchone()
+                if pending:
+                    cursor.execute("UPDATE warranty_registrations SET status = 'VALID', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (pending["id"],))
+
+                cursor.execute("INSERT INTO audit_logs (actor_user_id, action_type, target_entity, target_id, new_value, reason) VALUES (?, 'ADD_BATTERY_SERIAL', 'battery_master', 0, ?, 'Admin manual serial addition')", (user["id"], code))
+                conn.commit()
+
+                return self.send_json({"message": f"Serial '{code}' added to battery master and approved."})
+
+            # UPDATE SELLER PROFILE UPI DETAILS
+            elif path == "/api/profile/upi":
+                upi_id = body.get("upi_id", "").strip()
+                cursor.execute("UPDATE users SET upi_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (upi_id, user["id"]))
+                conn.commit()
+                return self.send_json({"message": "UPI details updated successfully.", "upi_id": upi_id})
+
+            # REFERRAL CREATION
+            elif path == "/api/referrals":
+                ref_mobile = body.get("mobile", "").strip()
+                if not ref_mobile or not re.match(r'^[0-9]{10}$', ref_mobile):
+                    return self.send_error_json("Please enter a valid 10-digit mobile number.", 400)
+
+                target_partner = cursor.execute("SELECT id, name FROM users WHERE phone = ? AND role = 'PARTNER'", (ref_mobile,)).fetchone()
+                if not target_partner:
+                    return self.send_error_json("No partner account found registered with this mobile number.", 404)
+
+                if target_partner["id"] == user["id"]:
+                    return self.send_error_json("Self-referral is not permitted.", 400)
+
+                try:
+                    cursor.execute("INSERT INTO referrals (referrer_partner_id, referred_partner_id) VALUES (?, ?)", (user["id"], target_partner["id"]))
+                    conn.commit()
+                    return self.send_json({"message": f"Referral created! Link established with {target_partner['name']}."}, status=201)
+                except sqlite3.IntegrityError:
+                    return self.send_error_json("Referral link already exists.", 400)
+
+            # REWARD REDEMPTION REQUEST
+            elif path == "/api/rewards/redeem":
+                pts = float(body.get("points", 0.0))
+                if pts <= 0:
+                    return self.send_error_json("Please enter valid reward points.", 400)
+
+                earned = cursor.execute("SELECT COALESCE(SUM(points_earned), 0.0) as val FROM reward_transactions WHERE beneficiary_partner_id = ? AND status = 'AVAILABLE'", (user["id"],)).fetchone()["val"]
+                redeemed = cursor.execute("SELECT COALESCE(SUM(points_redeemed), 0.0) as val FROM reward_redemptions WHERE partner_id = ? AND status IN ('APPROVED', 'PAID')", (user["id"],)).fetchone()["val"]
+                pending_red = cursor.execute("SELECT COALESCE(SUM(points_redeemed), 0.0) as val FROM reward_redemptions WHERE partner_id = ? AND status = 'PENDING'", (user["id"],)).fetchone()["val"]
+
+                avail = max(0.0, round(earned - redeemed - pending_red, 2))
+                if pts > avail:
+                    return self.send_error_json(f"Insufficient available reward points. Available: {avail} pts", 400)
+
+                cursor.execute("""
+                    INSERT INTO reward_redemptions (partner_id, points_redeemed, payout_amount, payment_method, status)
+                    VALUES (?, ?, ?, ?, 'PENDING')
+                """, (user["id"], pts, pts * 10.0, body.get("payment_method", "BANK")))
+                conn.commit()
+
+                return self.send_json({"message": "Redemption request submitted to Admin for payout processing."}, status=201)
+
+            # VERIFY & DECODE BATTERY QR CODE
+            elif path == "/api/batteries/verify-code":
+                code = normalize_battery_code(body.get("code", ""))
                 if not code:
                     return self.send_error_json("Please scan or enter a battery code.", 400)
 
@@ -759,33 +1081,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                 return self.send_json(decoded)
 
-            # 4. CREATE PARTNER (Admin Direct Create)
-            elif path == "/api/admin/sellers":
-                if user["role"] != "ADMIN":
-                    return self.send_error_json("Admin access required.", 403)
-                
-                name = body.get("name", "").strip()
-                email = body.get("email", "").strip().lower()
-                password = body.get("password", "").strip()
-                phone = body.get("phone", "").strip()
-                shop_name = body.get("shop_name", "").strip()
-
-                if not name or not email or not password:
-                    return self.send_error_json("Please enter seller name, email and password.", 400)
-
-                existing = cursor.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
-                if existing:
-                    return self.send_error_json("Email address is already registered.", 400)
-
-                cursor.execute("""
-                    INSERT INTO users (name, email, password_hash, role, phone, shop_name, status)
-                    VALUES (?, ?, ?, 'PARTNER', ?, ?, 'ACTIVE')
-                """, (name, email, hash_password(password), phone, shop_name))
-                conn.commit()
-                
-                return self.send_json({"message": "Seller created successfully.", "id": cursor.lastrowid}, status=201)
-
-            # 5. CREATE CUSTOMER (Enabled for BOTH Partner & Admin)
+            # CREATE CUSTOMER
             elif path == "/api/customers":
                 name = body.get("name", "").strip()
                 mobile = body.get("mobile", "").strip()
@@ -793,6 +1089,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 address = body.get("address", "").strip()
                 city = body.get("city", "").strip()
                 gst_number = body.get("gst_number", "").strip().upper()
+                vehicle_number = body.get("vehicle_number", "").strip().upper()
 
                 if not name:
                     return self.send_error_json("Please enter the customer's name.", 400)
@@ -802,9 +1099,9 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 partner_id = user["id"] if user["role"] == "PARTNER" else (body.get("partner_id") or user["id"])
 
                 cursor.execute("""
-                    INSERT INTO customers (partner_id, name, shop_name, mobile, address, city, gst_number)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (partner_id, name, shop_name, mobile, address, city, gst_number))
+                    INSERT INTO customers (partner_id, name, shop_name, mobile, address, city, gst_number, vehicle_number)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (partner_id, name, shop_name, mobile, address, city, gst_number, vehicle_number))
                 conn.commit()
                 
                 new_cust_id = cursor.lastrowid
@@ -816,7 +1113,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "customer": dict(created_cust)
                 }, status=201)
 
-            # 6. CREATE PRODUCT / BATTERY MODEL (Enabled for BOTH Partner & Admin)
+            # CREATE PRODUCT / BATTERY MODEL
             elif path == "/api/products":
                 name = body.get("name", "").strip()
                 model_code = body.get("model_code", "").strip().upper()
@@ -835,10 +1132,12 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if existing:
                     return self.send_error_json(f"Model code '{model_code}' already exists in catalog.", 400)
 
+                custom_p = user["id"] if user["role"] == "PARTNER" else None
+
                 cursor.execute("""
-                    INSERT INTO products (name, model_code, category, selling_price, gst_rate)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (name, model_code, category, selling_price, gst_rate))
+                    INSERT INTO products (name, model_code, category, selling_price, gst_rate, custom_partner_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (name, model_code, category, selling_price, gst_rate, custom_p))
                 conn.commit()
 
                 new_prod_id = cursor.lastrowid
@@ -850,7 +1149,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "product": dict(created_prod)
                 }, status=201)
 
-            # 7. RECORD PAYMENT
+            # RECORD PAYMENT
             elif path == "/api/payments":
                 customer_id = body.get("customer_id")
                 invoice_id = body.get("invoice_id")
@@ -866,10 +1165,6 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     return self.send_error_json("Please enter a valid payment amount.", 400)
 
                 partner_id = user["id"] if user["role"] == "PARTNER" else (body.get("partner_id") or user["id"])
-
-                cust = cursor.execute("SELECT id FROM customers WHERE id = ? AND partner_id = ?", (customer_id, partner_id)).fetchone()
-                if not cust and user["role"] == "PARTNER":
-                    return self.send_error_json("Customer not found or unauthorized.", 403)
 
                 cursor.execute("""
                     INSERT INTO payments (partner_id, customer_id, invoice_id, amount, payment_method, reference_no, payment_date, notes)
@@ -903,7 +1198,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 conn.commit()
                 return self.send_json({"message": "Payment recorded successfully.", "id": cursor.lastrowid}, status=201)
 
-            # 8. CREATE NEW BILL / INVOICE
+            # CREATE NEW BILL / INVOICE
             elif path == "/api/invoices":
                 customer_id = body.get("customer_id")
                 invoice_date = body.get("invoice_date") or datetime.date.today().isoformat()
@@ -920,19 +1215,6 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     return self.send_error_json("Please add at least one battery model.", 400)
 
                 partner_id = user["id"] if user["role"] == "PARTNER" else (body.get("partner_id") or user["id"])
-
-                cust = cursor.execute("SELECT id FROM customers WHERE id = ? AND partner_id = ?", (customer_id, partner_id)).fetchone()
-                if not cust and user["role"] == "PARTNER":
-                    return self.send_error_json("Customer not found or unauthorized.", 403)
-
-                if client_nonce:
-                    existing_inv = cursor.execute("SELECT id, invoice_number FROM invoices WHERE client_nonce = ?", (client_nonce,)).fetchone()
-                    if existing_inv:
-                        return self.send_json({
-                            "message": "Bill already created.",
-                            "id": existing_inv["id"],
-                            "invoice_number": existing_inv["invoice_number"]
-                        })
 
                 taxable_amount = 0.0
                 discount_amount = 0.0
@@ -951,7 +1233,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     disc = float(item.get("discount", 0.0))
                     gst_rate = float(item.get("gst_rate", prod["gst_rate"]))
 
-                    line_base = (unit_price * qty) - disc;
+                    line_base = (unit_price * qty) - disc
                     line_gst = line_base * (gst_rate / 100.0)
                     line_total = line_base + line_gst
 
@@ -960,11 +1242,13 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     gst_amount += line_gst
                     grand_total += line_total
 
+                    b_code_norm = normalize_battery_code(item.get("battery_code", ""))
+
                     processed_items.append({
                         "product_id": prod["id"],
                         "product_name_snapshot": prod["name"],
                         "model_code_snapshot": prod["model_code"],
-                        "battery_code": item.get("battery_code"),
+                        "battery_code": b_code_norm or None,
                         "mfg_period": item.get("mfg_period"),
                         "quantity": qty,
                         "unit_price": unit_price,
@@ -984,7 +1268,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 elif payment_mode == 'CREDIT':
                     actual_paid = 0.0
                     pay_status = 'UNPAID'
-                else: # PARTIALLY_PAID
+                else:
                     actual_paid = min(round(grand_total, 2), round(initial_paid_amount, 2))
                     pay_status = 'PAID' if actual_paid >= round(grand_total, 2) else ('PARTIALLY_PAID' if actual_paid > 0 else 'UNPAID')
 
@@ -1015,6 +1299,8 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         INSERT INTO payments (partner_id, customer_id, invoice_id, amount, payment_method, payment_date, notes)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, (partner_id, customer_id, inv_id, actual_paid, payment_method, invoice_date, f'Bill #{inv_number} payment'))
+
+                calculate_and_award_referral_points(conn, partner_id, inv_id, processed_items)
 
                 conn.commit()
 
@@ -1053,78 +1339,71 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
         cursor = conn.cursor()
 
         try:
-            # ADMIN APPROVAL / REJECTION / SUSPENSION OF PARTNERS
+            # ADMIN PARTNER STATUS UPDATE
             if path.startswith("/api/admin/sellers/") and path.endswith("/status"):
                 if user["role"] != "ADMIN":
                     return self.send_error_json("Forbidden: Admin access required", 403)
                 
                 parts = path.split("/")
                 target_seller_id = parts[-2]
-
                 action = body.get("action", "").upper()
                 rejection_reason = body.get("rejection_reason", "").strip()
 
-                if action not in ["APPROVE", "REJECT", "SUSPEND", "ACTIVATE"]:
-                    return self.send_error_json("Invalid action specified.", 400)
-
-                target = cursor.execute("SELECT id, name, email FROM users WHERE id = ? AND role = 'PARTNER'", (target_seller_id,)).fetchone()
+                target = cursor.execute("SELECT id, name FROM users WHERE id = ? AND role = 'PARTNER'", (target_seller_id,)).fetchone()
                 if not target:
                     return self.send_error_json("Partner account not found.", 404)
 
                 new_status = "ACTIVE" if action in ["APPROVE", "ACTIVATE"] else ("REJECTED" if action == "REJECT" else "SUSPENDED")
 
-                cursor.execute("""
-                    UPDATE users
-                    SET status = ?, rejection_reason = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (new_status, rejection_reason if action == "REJECT" else None, target_seller_id))
+                cursor.execute("UPDATE users SET status = ?, rejection_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (new_status, rejection_reason if action == "REJECT" else None, target_seller_id))
                 conn.commit()
 
-                return self.send_json({
-                    "message": f"Partner account '{target['name']}' updated to {new_status}.",
-                    "status": new_status,
-                    "partner_id": target["id"]
-                })
+                return self.send_json({"message": f"Partner account '{target['name']}' updated to {new_status}.", "status": new_status})
 
-            elif path.startswith("/api/customers/"):
-                cust_id = path.split("/")[-1]
+            # ADMIN APPROVE PENDING WARRANTY (Sections 7, 8, 9)
+            elif path.startswith("/api/admin/warranties/") and path.endswith("/approve"):
+                if user["role"] != "ADMIN":
+                    return self.send_error_json("Admin access required", 403)
                 
-                if user["role"] == "PARTNER":
-                    cust = cursor.execute("SELECT id FROM customers WHERE id = ? AND partner_id = ?", (cust_id, user["id"])).fetchone()
-                    if not cust:
-                        return self.send_error_json("Customer not found or unauthorized", 403)
+                w_id = path.split("/")[-2]
+                w_rec = cursor.execute("SELECT * FROM warranty_registrations WHERE id = ?", (w_id,)).fetchone()
+                if not w_rec:
+                    return self.send_error_json("Warranty record not found.", 404)
 
-                name = body.get("name", "").strip()
-                mobile = body.get("mobile", "").strip()
-                shop_name = body.get("shop_name", "").strip()
-                address = body.get("address", "").strip()
-                city = body.get("city", "").strip()
-                gst_number = body.get("gst_number", "").strip().upper()
+                if w_rec["status"] == "VALID":
+                    return self.send_error_json("This battery already has an active warranty registration.", 400)
 
-                cursor.execute("""
-                    UPDATE customers
-                    SET name = ?, shop_name = ?, mobile = ?, address = ?, city = ?, gst_number = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (name, shop_name, mobile, address, city, gst_number, cust_id))
+                # Check duplicate active registration (Section 9)
+                dup = cursor.execute("SELECT id FROM warranty_registrations WHERE battery_code = ? AND id != ? AND status IN ('VALID', 'EXPIRED')", (w_rec["battery_code"], w_id)).fetchone()
+                if dup:
+                    return self.send_error_json("This battery already has an active warranty registration.", 400)
+
+                cursor.execute("UPDATE warranty_registrations SET status = 'VALID', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (w_id,))
+                cursor.execute("INSERT INTO audit_logs (actor_user_id, action_type, target_entity, target_id, old_value, new_value, reason) VALUES (?, 'WARRANTY_APPROVED', 'warranty_registrations', ?, ?, 'VALID', 'Admin approved warranty')", (user["id"], w_id, w_rec["status"]))
                 conn.commit()
 
-                return self.send_json({"message": "Customer updated successfully."})
+                return self.send_json({"message": f"Warranty registration for serial '{w_rec['battery_code']}' approved."})
 
-            elif path.startswith("/api/products/"):
-                prod_id = path.split("/")[-1]
-                name = body.get("name", "").strip()
-                model_code = body.get("model_code", "").strip().upper()
-                selling_price = float(body.get("selling_price", 0.0))
-                gst_rate = float(body.get("gst_rate", 18.0))
+            # ADMIN CANCEL EXISTING WARRANTY WITH AUDIT TRAIL (Section 10)
+            elif path.startswith("/api/admin/warranties/") and path.endswith("/cancel"):
+                if user["role"] != "ADMIN":
+                    return self.send_error_json("Admin access required", 403)
+                
+                w_id = path.split("/")[-2]
+                reason = body.get("reason", "").strip()
+                if not reason:
+                    return self.send_error_json("Please provide an audit reason for cancelling this warranty.", 400)
 
-                cursor.execute("""
-                    UPDATE products
-                    SET name = ?, model_code = ?, selling_price = ?, gst_rate = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (name, model_code, selling_price, gst_rate, prod_id))
+                w_rec = cursor.execute("SELECT * FROM warranty_registrations WHERE id = ?", (w_id,)).fetchone()
+                if not w_rec:
+                    return self.send_error_json("Warranty record not found.", 404)
+
+                cancelled_code_marker = f"CANCELLED_{w_rec['id']}_{w_rec['battery_code']}"
+                cursor.execute("UPDATE warranty_registrations SET status = 'CANCELLED', battery_code = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (cancelled_code_marker, w_id))
+                cursor.execute("INSERT INTO audit_logs (actor_user_id, action_type, target_entity, target_id, old_value, new_value, reason) VALUES (?, 'WARRANTY_CANCELLED', 'warranty_registrations', ?, ?, 'CANCELLED', ?)", (user["id"], w_id, w_rec["status"], reason))
                 conn.commit()
 
-                return self.send_json({"message": "Product updated successfully."})
+                return self.send_json({"message": f"Warranty for serial '{w_rec['battery_code']}' cancelled. Audit record created."})
 
             else:
                 return self.send_error_json("Not Found", 404)
