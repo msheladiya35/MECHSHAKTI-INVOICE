@@ -1266,6 +1266,18 @@ function openCustomerModal() { document.getElementById('modal-customer').style.d
 function closeCustomerModal() { document.getElementById('modal-customer').style.display = 'none'; }
 function openProductModal() { document.getElementById('modal-product').style.display = 'flex'; }
 function closeProductModal() { document.getElementById('modal-product').style.display = 'none'; }
+function openPartnerCreateModal() { openRegisterModal(); }
+function togglePhoneSimulation() {
+  document.body.classList.toggle('phone-simulated');
+  const btn = document.getElementById('btn-phone-preview');
+  if (btn) {
+    if (document.body.classList.contains('phone-simulated')) {
+      btn.innerHTML = '📱 Normal View';
+    } else {
+      btn.innerHTML = '📱 Phone View';
+    }
+  }
+}
 
 document.getElementById('form-customer')?.addEventListener('submit', async (e) => {
   e.preventDefault();

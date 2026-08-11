@@ -1342,9 +1342,9 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "line_total": line_total
                     })
 
-                seq_row = cursor.execute("SELECT COUNT(*) as cnt FROM invoices WHERE partner_id = ?", (partner_id,)).fetchone()
-                seq = (seq_row["cnt"] if seq_row else 0) + 1001
-                inv_number = f"MSI-{seq}"
+                max_row = cursor.execute("SELECT MAX(id) as max_id FROM invoices").fetchone()
+                next_seq = ((max_row["max_id"] if max_row and max_row["max_id"] else 0) + 1) + 1000
+                inv_number = f"MSI-{partner_id}-{next_seq}"
 
                 if payment_mode == 'PAID':
                     actual_paid = round(grand_total, 2)

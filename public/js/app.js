@@ -1,1323 +1,1321 @@
-/* ==========================================================================
-   MECHSHAKTI SALES INVOICE PORTAL - MAIN APPLICATION CONTROLLER
-   ========================================================================== */
-
-const App = {
-  currentView: 'dashboard',
-  dateFilter: { preset: 'this_month', from: '', to: '' },
-  reportTab: 'hierarchical',
-
-  init() {
-    console.log('[App] Initializing Mechshakti Sales Invoice Portal...');
-    this.bindGlobalEvents();
-
-    // Register Service Worker for PWA
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then(reg => console.log('[PWA] Service Worker registered:', reg.scope))
-        .catch(err => console.error('[PWA] Service Worker registration failed:', err));
-    }
-
-    // Check login state
-    const user = API.getUser();
-    if (!user || !API.getToken()) {
-      this.renderLogin();
-    } else {
-      this.renderAppShell();
-      this.navigate(window.location.hash.replace('#/', '') || 'dashboard');
-    }
-  },
-
-  bindGlobalEvents() {
-    window.addEventListener('hashchange', () => {
-      const route = window.location.hash.replace('#/', '') || 'dashboard';
-      if (API.getToken()) {
-        this.navigate(route);
-      } else {
-        this.renderLogin();
-      }
-    });
-  },
-
-  // Refresh active view
-  refreshCurrentView() {
-    this.navigate(this.currentView);
-  },
-
-  // Navigation router
-  navigate(viewName) {
-    this.currentView = viewName;
-    window.location.hash = `#/${viewName}`;
-    this.updateActiveNavPill(viewName);
-
-    switch (viewName) {
-      case 'dashboard':
-        this.renderDashboard();
-        break;
-      case 'customers':
-        this.renderCustomers();
-        break;
-      case 'new-invoice':
-        this.renderNewInvoice();
-        break;
-      case 'invoices':
-        this.renderInvoices();
-        break;
-      case 'reports':
-        this.renderReports();
-        break;
-      case 'sellers':
-        this.renderSellers();
-        break;
-      default:
-        this.renderDashboard();
-    }
-  },
-
-  updateActiveNavPill(viewName) {
-    document.querySelectorAll('.nav-item').forEach(el => {
-      if (el.dataset.route === viewName) {
-        el.classList.add('active');
-      } else {
-        el.classList.remove('active');
-      }
-    });
-  },
-
-  // Render Top Navbar & Bottom Navigation Layout
-  renderAppShell() {
-    const user = API.getUser();
-    const isAdmin = user.role === 'ADMIN';
-
-    const shellHtml = `
-      <div id="networkBanner" class="status-banner" style="display:${navigator.onLine ? 'none' : 'flex'};">
-        ⚠️ Offline Mode: Invoices will be saved locally and synchronized when online.
-      </div>
-
-      <header class="top-navbar">
-        <div class="brand-container">
-          <img src="/icons/icon.svg" alt="Logo" class="brand-logo">
-          <div>
-            <h1 class="brand-title">MECHSHAKTI</h1>
-            <div class="brand-subtitle">Sales & Invoice Portal</div>
-          </div>
-        </div>
-        <div class="user-badge">
-          <div>
-            <div style="font-weight:700; font-size:0.85rem;">${user.name}</div>
-            <div style="font-size:0.7rem; color:var(--text-muted);">${user.shop_name || user.email}</div>
-          </div>
-          <span class="role-pill ${user.role.toLowerCase()}">${user.role}</span>
-          <button class="btn-logout" title="Logout" onclick="App.logout()">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-              <polyline points="16 17 21 12 16 7"></polyline>
-              <line x1="21" y1="12" x2="9" y2="12"></line>
-            </svg>
-          </button>
-        </div>
-      </header>
-
-      <main id="mainContainer"></main>
-
-      <nav class="bottom-nav">
-        <button class="nav-item" data-route="dashboard" onclick="App.navigate('dashboard')">
-          <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-          <span>Home</span>
-        </button>
-        <button class="nav-item" data-route="customers" onclick="App.navigate('customers')">
-          <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-          <span>Customers</span>
-        </button>
-        <button class="nav-item new-invoice-btn" data-route="new-invoice" onclick="App.navigate('new-invoice')" title="New Battery Sale">
-          <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          <span>Sale</span>
-        </button>
-        <button class="nav-item" data-route="invoices" onclick="App.navigate('invoices')">
-          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-          <span>Invoices</span>
-        </button>
-        <button class="nav-item" data-route="reports" onclick="App.navigate('reports')">
-          <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-          <span>Reports</span>
-        </button>
-      </nav>
-
-      <div id="modalContainer"></div>
-    `;
-
-    document.getElementById('app').innerHTML = shellHtml;
-  },
-
-  logout() {
-    API.clearAuth();
-    this.renderLogin();
-  },
-
-  // ------------------------------------------------------------------------
-  // 1. AUTH LOGIN VIEW
-  // ------------------------------------------------------------------------
-  renderLogin() {
-    const loginHtml = `
-      <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
-        <div class="card" style="width: 100%; max-width: 420px; padding: 32px; box-shadow: var(--shadow-lg);">
-          <div style="text-align: center; margin-bottom: 28px;">
-            <img src="/icons/icon.svg" alt="Mechshakti Logo" style="width: 72px; height: 72px; margin-bottom: 12px;">
-            <h2 class="brand-title" style="font-size: 1.8rem; margin-bottom: 4px;">MECHSHAKTI</h2>
-            <div style="color: var(--text-secondary); font-size: 0.9rem;">Sales & Invoice Portal PWA</div>
-          </div>
-
-          <div id="loginError" class="badge badge-warning" style="display:none; width:100%; padding:10px; margin-bottom:16px; text-align:center; font-size:0.85rem;"></div>
-
-          <form id="loginForm" onsubmit="App.handleLogin(event)">
-            <div class="form-group">
-              <label class="form-label">Email Address</label>
-              <input type="email" id="loginEmail" class="form-control" placeholder="seller1@mechshakti.com" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Password</label>
-              <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required>
-            </div>
-            <button type="submit" id="loginBtn" class="btn btn-primary btn-block" style="margin-top: 12px;">
-              ⚡ Sign In to Portal
-            </button>
-          </form>
-
-          <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-color); text-align: center; font-size: 0.75rem; color: var(--text-muted);">
-            Demo Admin: admin@mechshakti.com / admin123<br>
-            Demo Partner: seller1@mechshakti.com / seller123
-          </div>
-        </div>
-      </div>
-    `;
-
-    document.getElementById('app').innerHTML = loginHtml;
-  },
-
-  async handleLogin(e) {
-    e.preventDefault();
-    const email = document.getElementById('loginEmail').value.trim();
-    const password = document.getElementById('loginPassword').value.trim();
-    const errDiv = document.getElementById('loginError');
-    const btn = document.getElementById('loginBtn');
-
-    errDiv.style.display = 'none';
-    btn.disabled = true;
-    btn.innerHTML = 'Signing In...';
-
-    try {
-      const res = await API.login(email, password);
-      API.setAuth(res.token, res.user);
-      this.renderAppShell();
-      this.navigate('dashboard');
-    } catch (err) {
-      errDiv.innerText = err.message || 'Login failed. Please check credentials.';
-      errDiv.style.display = 'block';
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '⚡ Sign In to Portal';
-    }
-  },
-
-  // ------------------------------------------------------------------------
-  // 2. DASHBOARD VIEW
-  // ------------------------------------------------------------------------
-  async renderDashboard() {
-    const container = document.getElementById('mainContainer');
-    container.innerHTML = `<div style="text-align:center; padding:40px;"><div class="stat-value">Loading Dashboard...</div></div>`;
-
-    try {
-      const [dashData, recentInvoices] = await Promise.all([
-        API.getReport('dashboard', { preset: 'this_month' }),
-        API.getInvoices({ preset: 'this_month' })
-      ]);
-
-      const user = API.getUser();
-      const isAdmin = user.role === 'ADMIN';
-
-      const html = `
-        <div style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <h2>Dashboard</h2>
-            <div style="font-size:0.85rem; color:var(--text-secondary);">Overview for ${new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</div>
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="App.navigate('new-invoice')">
-            + New Sale
-          </button>
-        </div>
-
-        <div class="stats-grid">
-          <div class="stat-card">
-            <span class="stat-label">Batteries Sold</span>
-            <span class="stat-value">${dashData.total_batteries}</span>
-            <span class="stat-sub">This Month</span>
-          </div>
-
-          <div class="stat-card amber">
-            <span class="stat-label">Total Revenue</span>
-            <span class="stat-value">₹${dashData.total_sales.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
-            <span class="stat-sub">${dashData.total_invoices} Total Invoices</span>
-          </div>
-
-          <div class="stat-card emerald">
-            <span class="stat-label">Active Customers</span>
-            <span class="stat-value">${dashData.total_customers}</span>
-            <span class="stat-sub">Avg ${dashData.avg_batteries_per_invoice} qty/inv</span>
-          </div>
-
-          ${isAdmin && dashData.top_seller ? `
-          <div class="stat-card purple">
-            <span class="stat-label">Top Seller</span>
-            <span class="stat-value" style="font-size:1.1rem;">${dashData.top_seller.name}</span>
-            <span class="stat-sub">₹${dashData.top_seller.total_sales.toLocaleString()} sales</span>
-          </div>
-          ` : ''}
-        </div>
-
-        <!-- Top Selling Highlights -->
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px; margin-bottom:20px;">
-          <div class="card" style="margin-bottom:0;">
-            <div class="card-title">🏆 Top Selling Battery Model</div>
-            ${dashData.top_battery ? `
-              <div style="font-weight:700; font-size:1.1rem; color:var(--accent-amber);">${dashData.top_battery.product_name_snapshot}</div>
-              <div style="font-size:0.85rem; color:var(--text-secondary);">Code: ${dashData.top_battery.model_code_snapshot} | Sold: <strong>${dashData.top_battery.total_qty} units</strong></div>
-            ` : `<div style="color:var(--text-muted); font-size:0.9rem;">No sales recorded yet this month.</div>`}
-          </div>
-
-          <div class="card" style="margin-bottom:0;">
-            <div class="card-title">⭐ Top Customer</div>
-            ${dashData.top_customer ? `
-              <div style="font-weight:700; font-size:1.1rem; color:var(--accent-emerald);">${dashData.top_customer.name}</div>
-              <div style="font-size:0.85rem; color:var(--text-secondary);">${dashData.top_customer.shop_name || ''} | Spent: <strong>₹${dashData.top_customer.total_spent.toLocaleString()}</strong> (${dashData.top_customer.total_inv} inv)</div>
-            ` : `<div style="color:var(--text-muted); font-size:0.9rem;">No active customer purchases yet.</div>`}
-          </div>
-        </div>
-
-        <!-- Recent Sales Table -->
-        <div class="card">
-          <div class="card-title">
-            <span>Recent Battery Sales</span>
-            <button class="btn btn-secondary btn-sm" onclick="App.navigate('invoices')">View All</button>
-          </div>
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Invoice #</th>
-                  <th>Date</th>
-                  <th>Customer</th>
-                  ${isAdmin ? '<th>Seller</th>' : ''}
-                  <th>Batteries</th>
-                  <th>Total</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${recentInvoices.length === 0 ? `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No invoices found. Click + New Sale to create your first battery invoice.</td></tr>` : ''}
-                ${recentInvoices.slice(0, 5).map(inv => `
-                  <tr>
-                    <td><strong>${inv.invoice_number}</strong></td>
-                    <td>${inv.invoice_date}</td>
-                    <td>${inv.customer_name}</td>
-                    ${isAdmin ? `<td><span class="badge badge-info">${inv.partner_name}</span></td>` : ''}
-                    <td><span class="badge badge-success">${inv.total_batteries || 0} qty</span></td>
-                    <td><strong>₹${inv.grand_total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></td>
-                    <td>
-                      <button class="btn btn-secondary btn-sm" onclick="App.viewInvoice(${inv.id})">View</button>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
-
-      container.innerHTML = html;
-    } catch (err) {
-      container.innerHTML = `<div class="card"><div class="badge badge-warning">Error loading dashboard: ${err.message}</div></div>`;
-    }
-  },
-
-  // ------------------------------------------------------------------------
-  // 3. CUSTOMER MANAGEMENT VIEW
-  // ------------------------------------------------------------------------
-  async renderCustomers() {
-    const container = document.getElementById('mainContainer');
-    container.innerHTML = `<div style="text-align:center; padding:40px;"><div class="stat-value">Loading Customers...</div></div>`;
-
-    try {
-      const customers = await API.getCustomers();
-      const user = API.getUser();
-      const isAdmin = user.role === 'ADMIN';
-
-      const html = `
-        <div style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-          <div>
-            <h2>Customer Management</h2>
-            <div style="font-size:0.85rem; color:var(--text-secondary);">${customers.length} Registered Customers</div>
-          </div>
-          <button class="btn btn-primary" onclick="App.openAddCustomerModal()">
-            + Add Customer
-          </button>
-        </div>
-
-        <div class="card" style="padding:12px; margin-bottom:16px;">
-          <input type="text" id="customerSearch" class="form-control" placeholder="🔍 Search customer name, shop or mobile number..." oninput="App.filterCustomersTable()">
-        </div>
-
-        <div class="card">
-          <div class="table-responsive">
-            <table class="data-table" id="customersTable">
-              <thead>
-                <tr>
-                  <th>Customer Name</th>
-                  <th>Shop / Garage Name</th>
-                  <th>Mobile</th>
-                  <th>City</th>
-                  ${isAdmin ? '<th>Assigned Partner</th>' : ''}
-                  <th>Total Spent</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${customers.length === 0 ? `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:20px;">No customers found. Click + Add Customer above.</td></tr>` : ''}
-                ${customers.map(c => `
-                  <tr class="cust-row" data-search="${(c.name + ' ' + (c.shop_name||'') + ' ' + c.mobile).toLowerCase()}">
-                    <td><strong>${c.name}</strong></td>
-                    <td>${c.shop_name || '-'}</td>
-                    <td>${c.mobile}</td>
-                    <td>${c.city || '-'}</td>
-                    ${isAdmin ? `<td><span class="badge badge-info">${c.partner_name || 'Admin'}</span></td>` : ''}
-                    <td><strong style="color:var(--accent-emerald);">₹${c.total_spent.toLocaleString('en-IN')}</strong> (${c.total_invoices} inv)</td>
-                    <td>
-                      <div style="display:flex; gap:6px;">
-                        <button class="btn btn-secondary btn-sm" onclick="App.viewCustomerHistory(${c.id})">History</button>
-                        <button class="btn btn-secondary btn-sm" onclick="App.openEditCustomerModal(${c.id})">Edit</button>
-                      </div>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
-
-      container.innerHTML = html;
-    } catch (err) {
-      container.innerHTML = `<div class="card"><div class="badge badge-warning">Error: ${err.message}</div></div>`;
-    }
-  },
-
-  filterCustomersTable() {
-    const q = document.getElementById('customerSearch').value.toLowerCase();
-    document.querySelectorAll('.cust-row').forEach(row => {
-      const text = row.dataset.search;
-      row.style.display = text.includes(q) ? '' : 'none';
-    });
-  },
-
-  openAddCustomerModal() {
-    const modalHtml = `
-      <div class="modal-overlay">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Add New Customer</h3>
-            <button class="modal-close" onclick="App.closeModal()">&times;</button>
-          </div>
-          <form onsubmit="App.saveNewCustomer(event)">
-            <div class="form-group">
-              <label class="form-label">Customer Name *</label>
-              <input type="text" id="custName" class="form-control" placeholder="ABC Auto Garage" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Garage / Shop Name</label>
-              <input type="text" id="custShop" class="form-control" placeholder="ABC Workshop Center">
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label class="form-label">Mobile Number *</label>
-                <input type="tel" id="custMobile" class="form-control" placeholder="9898012345" required>
-              </div>
-              <div class="form-group">
-                <label class="form-label">City</label>
-                <input type="text" id="custCity" class="form-control" placeholder="Ahmedabad">
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Address</label>
-              <input type="text" id="custAddress" class="form-control" placeholder="Shop 12, GIDC Market">
-            </div>
-            <div class="form-group">
-              <label class="form-label">GST Number (Optional)</label>
-              <input type="text" id="custGst" class="form-control" placeholder="24AAAAA0000A1Z5">
-            </div>
-            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
-              <button type="button" class="btn btn-secondary" onclick="App.closeModal()">Cancel</button>
-              <button type="submit" class="btn btn-primary">Save Customer</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    `;
-    document.getElementById('modalContainer').innerHTML = modalHtml;
-  },
-
-  async saveNewCustomer(e) {
-    e.preventDefault();
-    const data = {
-      name: document.getElementById('custName').value.trim(),
-      shop_name: document.getElementById('custShop').value.trim(),
-      mobile: document.getElementById('custMobile').value.trim(),
-      city: document.getElementById('custCity').value.trim(),
-      address: document.getElementById('custAddress').value.trim(),
-      gst_number: document.getElementById('custGst').value.trim()
-    };
-
-    try {
-      await API.createCustomer(data);
-      this.closeModal();
-      this.renderCustomers();
-    } catch (err) {
-      alert(`Failed to save customer: ${err.message}`);
-    }
-  },
-
-  async openEditCustomerModal(id) {
-    try {
-      const data = await API.getCustomerDetails(id);
-      const cust = data.customer;
-
-      const modalHtml = `
-        <div class="modal-overlay">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h3>Edit Customer - ${cust.name}</h3>
-              <button class="modal-close" onclick="App.closeModal()">&times;</button>
-            </div>
-            <form onsubmit="App.updateCustomer(event, ${cust.id})">
-              <div class="form-group">
-                <label class="form-label">Customer Name *</label>
-                <input type="text" id="editCustName" class="form-control" value="${cust.name}" required>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Garage / Shop Name</label>
-                <input type="text" id="editCustShop" class="form-control" value="${cust.shop_name || ''}">
-              </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Mobile Number *</label>
-                  <input type="tel" id="editCustMobile" class="form-control" value="${cust.mobile}" required>
-                </div>
-                <div class="form-group">
-                  <label class="form-label">City</label>
-                  <input type="text" id="editCustCity" class="form-control" value="${cust.city || ''}">
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Address</label>
-                <input type="text" id="editCustAddress" class="form-control" value="${cust.address || ''}">
-              </div>
-              <div class="form-group">
-                <label class="form-label">GST Number</label>
-                <input type="text" id="editCustGst" class="form-control" value="${cust.gst_number || ''}">
-              </div>
-              <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
-                <button type="button" class="btn btn-secondary" onclick="App.closeModal()">Cancel</button>
-                <button type="submit" class="btn btn-primary">Update Customer</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      `;
-      document.getElementById('modalContainer').innerHTML = modalHtml;
-    } catch (err) {
-      alert(`Error loading customer: ${err.message}`);
-    }
-  },
-
-  async updateCustomer(e, id) {
-    e.preventDefault();
-    const data = {
-      name: document.getElementById('editCustName').value.trim(),
-      shop_name: document.getElementById('editCustShop').value.trim(),
-      mobile: document.getElementById('editCustMobile').value.trim(),
-      city: document.getElementById('editCustCity').value.trim(),
-      address: document.getElementById('editCustAddress').value.trim(),
-      gst_number: document.getElementById('editCustGst').value.trim()
-    };
-
-    try {
-      await API.updateCustomer(id, data);
-      this.closeModal();
-      this.renderCustomers();
-    } catch (err) {
-      alert(`Failed to update customer: ${err.message}`);
-    }
-  },
-
-  async viewCustomerHistory(id) {
-    try {
-      const data = await API.getCustomerDetails(id);
-      const cust = data.customer;
-      const invoices = data.invoices;
-
-      const modalHtml = `
-        <div class="modal-overlay">
-          <div class="modal-content" style="max-width:700px;">
-            <div class="modal-header">
-              <div>
-                <h3>${cust.name}</h3>
-                <div style="font-size:0.85rem; color:var(--text-secondary);">${cust.shop_name || 'Individual Customer'} | ${cust.mobile}</div>
-              </div>
-              <button class="modal-close" onclick="App.closeModal()">&times;</button>
-            </div>
-            <div style="margin-bottom:16px;">
-              <div class="badge badge-info">Total Purchases: ${invoices.length} Invoices</div>
-            </div>
-            <div class="table-responsive">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Invoice #</th>
-                    <th>Date</th>
-                    <th>Grand Total</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${invoices.length === 0 ? `<tr><td colspan="4" style="text-align:center; padding:20px; color:var(--text-muted);">No sales history for this customer.</td></tr>` : ''}
-                  ${invoices.map(inv => `
-                    <tr>
-                      <td><strong>${inv.invoice_number}</strong></td>
-                      <td>${inv.invoice_date}</td>
-                      <td><strong>₹${inv.grand_total.toFixed(2)}</strong></td>
-                      <td>
-                        <button class="btn btn-secondary btn-sm" onclick="App.closeModal(); App.viewInvoice(${inv.id})">View Invoice</button>
-                      </td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      `;
-      document.getElementById('modalContainer').innerHTML = modalHtml;
-    } catch (err) {
-      alert(`Error loading history: ${err.message}`);
-    }
-  },
-
-  closeModal() {
-    document.getElementById('modalContainer').innerHTML = '';
-  },
-
-  // ------------------------------------------------------------------------
-  // 4. NEW INVOICE / BATTERY SALE CREATOR FLOW
-  // ------------------------------------------------------------------------
-  async renderNewInvoice() {
-    const container = document.getElementById('mainContainer');
-    container.innerHTML = `<div style="text-align:center; padding:40px;"><div class="stat-value">Loading New Invoice Creator...</div></div>`;
-
-    try {
-      const [customers, products] = await Promise.all([
-        API.getCustomers(),
-        API.getProducts()
-      ]);
-
-      const html = `
-        <div style="margin-bottom:20px;">
-          <h2>New Battery Sale Invoice</h2>
-          <div style="font-size:0.85rem; color:var(--text-secondary);">Create invoice and record battery sales</div>
-        </div>
-
-        <form id="newInvoiceForm" onsubmit="App.handleSaveInvoice(event)">
-          <!-- Step 1: Select Customer -->
-          <div class="card">
-            <div class="card-title">1. Select Customer</div>
-            <div class="form-row">
-              <div class="form-group">
-                <select id="invCustomerSelect" class="form-control" required>
-                  <option value="">-- Choose Customer --</option>
-                  ${customers.map(c => `<option value="${c.id}">${c.name} ${c.shop_name ? '(' + c.shop_name + ')' : ''} - ${c.mobile}</option>`).join('')}
-                </select>
-              </div>
-              <button type="button" class="btn btn-secondary" onclick="App.openAddCustomerModal()">+ Quick Add</button>
-            </div>
-          </div>
-
-          <!-- Step 2: Line Items -->
-          <div class="card">
-            <div class="card-title">
-              <span>2. Select Battery Products</span>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="App.addInvoiceLineItem()">+ Add Battery Item</button>
-            </div>
-
-            <div id="lineItemsContainer"></div>
-
-            <div style="margin-top:16px; text-align:right;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="App.addInvoiceLineItem()">+ Add Another Battery</button>
-            </div>
-          </div>
-
-          <!-- Step 3: Calculation & Totals Summary -->
-          <div class="card">
-            <div class="card-title">3. Invoice Summary & Tax Calculation</div>
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
-              <div>
-                <div class="form-group">
-                  <label class="form-label">Invoice Date</label>
-                  <input type="date" id="invDate" class="form-control" value="${new Date().toISOString().split('T')[0]}" required>
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Notes / Vehicle No (Optional)</label>
-                  <input type="text" id="invNotes" class="form-control" placeholder="e.g. Battery replacement for GJ01AB1234">
-                </div>
-              </div>
-
-              <div style="background:rgba(15,23,42,0.6); padding:16px; border-radius:var(--radius-md); border:1px solid var(--border-color);">
-                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                  <span style="color:var(--text-secondary);">Taxable Base Amount:</span>
-                  <span id="taxableText">₹0.00</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                  <span style="color:var(--text-secondary);">Total Discount:</span>
-                  <span id="discountText">₹0.00</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                  <span style="color:var(--text-secondary);">GST Amount (18%):</span>
-                  <span id="gstText">₹0.00</span>
-                </div>
-                <hr style="border-color:var(--border-color); margin:12px 0;">
-                <div style="display:flex; justify-content:space-between; font-weight:800; font-size:1.3rem; color:var(--accent-amber);">
-                  <span>Grand Total:</span>
-                  <span id="grandTotalText">₹0.00</span>
-                </div>
-              </div>
-            </div>
-
-            <div style="display:flex; justify-content:flex-end; gap:12px;">
-              <button type="button" class="btn btn-secondary" onclick="App.navigate('invoices')">Cancel</button>
-              <button type="submit" id="saveInvoiceBtn" class="btn btn-success btn-block" style="max-width:240px;">
-                ⚡ Save & Generate Invoice
-              </button>
-            </div>
-          </div>
-        </form>
-      `;
-
-      container.innerHTML = html;
-      this.productsCatalog = products; // Cache catalog
-      this.addInvoiceLineItem(); // Add default initial line
-    } catch (err) {
-      container.innerHTML = `<div class="card"><div class="badge badge-warning">Error: ${err.message}</div></div>`;
-    }
-  },
-
-  addInvoiceLineItem() {
-    const container = document.getElementById('lineItemsContainer');
-    const itemIndex = container.children.length;
-
-    const lineHtml = `
-      <div class="line-item-row" style="background:rgba(15,23,42,0.4); border:1px solid var(--border-color); border-radius:var(--radius-md); padding:12px; margin-bottom:10px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <span style="font-weight:700; font-size:0.85rem; color:var(--accent-blue);">Item #${itemIndex + 1}</span>
-          ${itemIndex > 0 ? `<button type="button" class="btn-logout" onclick="this.closest('.line-item-row').remove(); App.recalculateInvoice();" title="Remove">&times;</button>` : ''}
-        </div>
-        <div style="display:grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap:10px;">
-          <div>
-            <label class="form-label">Battery Product *</label>
-            <select class="form-control item-product" onchange="App.onLineProductChange(this)" required>
-              <option value="">-- Select Battery --</option>
-              ${this.productsCatalog.map(p => `<option value="${p.id}" data-price="${p.selling_price}">${p.name} (${p.model_code}) - ₹${p.selling_price}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <label class="form-label">Quantity *</label>
-            <input type="number" class="form-control item-qty" min="1" value="1" oninput="App.recalculateInvoice()" required>
-          </div>
-          <div>
-            <label class="form-label">Unit Price (₹)</label>
-            <input type="number" class="form-control item-price" step="0.01" value="0.00" oninput="App.recalculateInvoice()" required>
-          </div>
-          <div>
-            <label class="form-label">Discount (₹)</label>
-            <input type="number" class="form-control item-discount" step="0.01" value="0.00" oninput="App.recalculateInvoice()">
-          </div>
-        </div>
-        <div style="text-align:right; margin-top:8px; font-weight:700; font-size:0.9rem; color:var(--accent-emerald);">
-          Line Total: ₹<span class="line-total-text">0.00</span>
-        </div>
-      </div>
-    `;
-
-    container.insertAdjacentHTML('beforeend', lineHtml);
-  },
-
-  onLineProductChange(selectEl) {
-    const row = selectEl.closest('.line-item-row');
-    const selectedOption = selectEl.options[selectEl.selectedIndex];
-    const price = selectedOption.dataset.price ? parseFloat(selectedOption.dataset.price) : 0.00;
-    row.querySelector('.item-price').value = price.toFixed(2);
-    this.recalculateInvoice();
-  },
-
-  recalculateInvoice() {
-    let taxable = 0.0;
-    let discount = 0.0;
-    let gst = 0.0;
-    let grandTotal = 0.0;
-
-    document.querySelectorAll('.line-item-row').forEach(row => {
-      const qty = parseInt(row.querySelector('.item-qty').value || 1);
-      const unitPrice = parseFloat(row.querySelector('.item-price').value || 0);
-      const disc = parseFloat(row.querySelector('.item-discount').value || 0);
-
-      const lineBase = (unitPrice * qty) - disc;
-      const lineGst = lineBase * 0.18; // 18% GST rate
-      const lineTotal = lineBase + lineGst;
-
-      row.querySelector('.line-total-text').innerText = lineTotal.toFixed(2);
-
-      taxable += lineBase;
-      discount += disc;
-      gst += lineGst;
-      grandTotal += lineTotal;
-    });
-
-    document.getElementById('taxableText').innerText = `₹${taxable.toFixed(2)}`;
-    document.getElementById('discountText').innerText = `₹${discount.toFixed(2)}`;
-    document.getElementById('gstText').innerText = `₹${gst.toFixed(2)}`;
-    document.getElementById('grandTotalText').innerText = `₹${grandTotal.toFixed(2)}`;
-  },
-
-  async handleSaveInvoice(e) {
-    e.preventDefault();
-    const customer_id = parseInt(document.getElementById('invCustomerSelect').value);
-    const invoice_date = document.getElementById('invDate').value;
-    const notes = document.getElementById('invNotes').value.trim();
-    const btn = document.getElementById('saveInvoiceBtn');
-
-    if (!customer_id) {
-      alert('Please select a customer.');
-      return;
-    }
-
-    const items = [];
-    document.querySelectorAll('.line-item-row').forEach(row => {
-      const prodId = parseInt(row.querySelector('.item-product').value);
-      const qty = parseInt(row.querySelector('.item-qty').value);
-      const price = parseFloat(row.querySelector('.item-price').value);
-      const disc = parseFloat(row.querySelector('.item-discount').value);
-
-      if (prodId && qty > 0) {
-        items.push({
-          product_id: prodId,
-          quantity: qty,
-          unit_price: price,
-          discount: disc
-        });
-      }
-    });
-
-    if (items.length === 0) {
-      alert('Please add at least one battery product item.');
-      return;
-    }
-
-    btn.disabled = true;
-    btn.innerHTML = 'Saving Invoice...';
-
-    const invoicePayload = {
-      customer_id,
-      invoice_date,
-      notes,
-      items,
-      client_nonce: 'NONCE_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6)
-    };
-
-    try {
-      // Check if Online or Offline
-      if (navigator.onLine) {
-        const res = await API.createInvoice(invoicePayload);
-        alert(`✔ Invoice #${res.invoice_number} saved successfully!`);
-        this.navigate('invoices');
-        this.viewInvoice(res.id);
-      } else {
-        // Save to IndexedDB Offline Store
-        await OfflineDB.savePendingInvoice(invoicePayload);
-        alert(`⚠️ Saved in Offline Mode! Invoice will sync automatically when internet returns.`);
-        this.navigate('invoices');
-      }
-    } catch (err) {
-      alert(`Error saving invoice: ${err.message}`);
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '⚡ Save & Generate Invoice';
-    }
-  },
-
-  // ------------------------------------------------------------------------
-  // 5. INVOICES & SALES HISTORY VIEW
-  // ------------------------------------------------------------------------
-  async renderInvoices() {
-    const container = document.getElementById('mainContainer');
-    container.innerHTML = `<div style="text-align:center; padding:40px;"><div class="stat-value">Loading Sales Invoices...</div></div>`;
-
-    try {
-      const user = API.getUser();
-      const isAdmin = user.role === 'ADMIN';
-      const invoices = await API.getInvoices(this.dateFilter);
-
-      const html = `
-        <div style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-          <div>
-            <h2>Sales Invoices</h2>
-            <div style="font-size:0.85rem; color:var(--text-secondary);">${invoices.length} Invoices Found</div>
-          </div>
-          <button class="btn btn-primary" onclick="App.navigate('new-invoice')">+ New Sale</button>
-        </div>
-
-        <!-- Filter Controls -->
-        <div class="card" style="padding:16px;">
-          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; align-items:end;">
-            <div>
-              <label class="form-label">Date Range Filter</label>
-              <select id="invoicePresetFilter" class="form-control" onchange="App.onDatePresetChange(this.value)">
-                <option value="this_month" ${this.dateFilter.preset === 'this_month' ? 'selected' : ''}>This Month</option>
-                <option value="today" ${this.dateFilter.preset === 'today' ? 'selected' : ''}>Today</option>
-                <option value="yesterday" ${this.dateFilter.preset === 'yesterday' ? 'selected' : ''}>Yesterday</option>
-                <option value="this_week" ${this.dateFilter.preset === 'this_week' ? 'selected' : ''}>This Week</option>
-                <option value="prev_week" ${this.dateFilter.preset === 'prev_week' ? 'selected' : ''}>Previous Week</option>
-                <option value="prev_month" ${this.dateFilter.preset === 'prev_month' ? 'selected' : ''}>Previous Month</option>
-                <option value="this_year" ${this.dateFilter.preset === 'this_year' ? 'selected' : ''}>This Year</option>
-                <option value="prev_year" ${this.dateFilter.preset === 'prev_year' ? 'selected' : ''}>Previous Year</option>
-              </select>
-            </div>
-            <div>
-              <input type="text" id="invoiceSearchInput" class="form-control" placeholder="🔍 Search Invoice # or Customer..." oninput="App.filterInvoicesTable()">
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="table-responsive">
-            <table class="data-table" id="invoicesTable">
-              <thead>
-                <tr>
-                  <th>Invoice #</th>
-                  <th>Date</th>
-                  <th>Customer Name</th>
-                  ${isAdmin ? '<th>Seller</th>' : ''}
-                  <th>Total Batteries</th>
-                  <th>Grand Total</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${invoices.length === 0 ? `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">No sales invoices match the selected filter.</td></tr>` : ''}
-                ${invoices.map(inv => `
-                  <tr class="inv-row" data-search="${(inv.invoice_number + ' ' + inv.customer_name).toLowerCase()}">
-                    <td><strong>${inv.invoice_number}</strong></td>
-                    <td>${inv.invoice_date}</td>
-                    <td>${inv.customer_name}</td>
-                    ${isAdmin ? `<td><span class="badge badge-info">${inv.partner_name}</span></td>` : ''}
-                    <td><span class="badge badge-success">${inv.total_batteries || 0} units</span></td>
-                    <td><strong style="color:var(--accent-amber);">₹${inv.grand_total.toFixed(2)}</strong></td>
-                    <td>
-                      <button class="btn btn-secondary btn-sm" onclick="App.viewInvoice(${inv.id})">Open Invoice</button>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
-
-      container.innerHTML = html;
-    } catch (err) {
-      container.innerHTML = `<div class="card"><div class="badge badge-warning">Error: ${err.message}</div></div>`;
-    }
-  },
-
-  onDatePresetChange(val) {
-    this.dateFilter.preset = val;
-    this.renderInvoices();
-  },
-
-  filterInvoicesTable() {
-    const q = document.getElementById('invoiceSearchInput').value.toLowerCase();
-    document.querySelectorAll('.inv-row').forEach(row => {
-      row.style.display = row.dataset.search.includes(q) ? '' : 'none';
-    });
-  },
-
-  async viewInvoice(id) {
-    try {
-      const data = await API.getInvoiceDetails(id);
-      const inv = data.invoice;
-      const items = data.items;
-
-      const modalHtml = `
-        <div class="modal-overlay">
-          <div class="modal-content" style="max-width:800px; padding:0;">
-            <div class="modal-header" style="padding:20px; border-bottom:1px solid var(--border-color);">
-              <div>
-                <h3>Tax Invoice - ${inv.invoice_number}</h3>
-                <div style="font-size:0.85rem; color:var(--text-secondary);">Date: ${inv.invoice_date}</div>
-              </div>
-              <button class="modal-close" onclick="App.closeModal()">&times;</button>
-            </div>
-
-            <div style="padding:24px;">
-              <!-- Details Header Grid -->
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; background:rgba(15,23,42,0.5); padding:16px; border-radius:var(--radius-md); border:1px solid var(--border-color);">
-                <div>
-                  <div style="font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; font-weight:700;">Customer Info</div>
-                  <div style="font-weight:700; font-size:1rem; margin-top:4px;">${inv.customer_name}</div>
-                  <div style="font-size:0.85rem; color:var(--text-secondary);">${inv.customer_shop || ''}</div>
-                  <div style="font-size:0.85rem; color:var(--text-secondary);">Mobile: ${inv.customer_mobile}</div>
-                  ${inv.customer_city ? `<div style="font-size:0.85rem; color:var(--text-secondary);">City: ${inv.customer_city}</div>` : ''}
-                </div>
-                <div>
-                  <div style="font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; font-weight:700;">Seller / Partner</div>
-                  <div style="font-weight:700; font-size:1rem; margin-top:4px;">${inv.seller_name}</div>
-                  <div style="font-size:0.85rem; color:var(--text-secondary);">${inv.seller_shop}</div>
-                  <div style="font-size:0.85rem; color:var(--text-secondary);">Phone: ${inv.seller_phone}</div>
-                </div>
-              </div>
-
-              <!-- Line Items Table -->
-              <div class="table-responsive" style="margin-bottom:20px;">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Battery Description</th>
-                      <th>Qty</th>
-                      <th>Unit Price</th>
-                      <th>Discount</th>
-                      <th>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${items.map((it, idx) => `
-                      <tr>
-                        <td>${idx + 1}</td>
-                        <td>
-                          <strong>${it.product_name_snapshot}</strong><br>
-                          <small style="color:var(--text-muted);">Model: ${it.model_code_snapshot}</small>
-                        </td>
-                        <td><span class="badge badge-success">${it.quantity}</span></td>
-                        <td>₹${it.unit_price.toFixed(2)}</td>
-                        <td>₹${it.discount.toFixed(2)}</td>
-                        <td><strong>₹${it.line_total.toFixed(2)}</strong></td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- Totals Breakdown -->
-              <div style="display:flex; justify-content:flex-end; margin-bottom:24px;">
-                <div style="width:300px; background:rgba(15,23,42,0.8); padding:16px; border-radius:var(--radius-md); border:1px solid var(--border-color);">
-                  <div style="display:flex; justify-content:space-between; font-size:0.9rem; margin-bottom:6px;">
-                    <span style="color:var(--text-secondary);">Taxable Amount:</span>
-                    <span>₹${inv.taxable_amount.toFixed(2)}</span>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; font-size:0.9rem; margin-bottom:6px;">
-                    <span style="color:var(--text-secondary);">GST Amount:</span>
-                    <span>₹${inv.gst_amount.toFixed(2)}</span>
-                  </div>
-                  <hr style="border-color:var(--border-color); margin:8px 0;">
-                  <div style="display:flex; justify-content:space-between; font-weight:800; font-size:1.2rem; color:var(--accent-amber);">
-                    <span>Grand Total:</span>
-                    <span>₹${inv.grand_total.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <button class="btn btn-secondary" onclick="App.closeModal()">Close</button>
-                <button class="btn btn-primary" onclick="ExportUtil.printInvoice(${JSON.stringify(inv).replace(/"/g, '&quot;')}, ${JSON.stringify(items).replace(/"/g, '&quot;')})">
-                  🖨️ Print / Download PDF
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-
-      document.getElementById('modalContainer').innerHTML = modalHtml;
-    } catch (err) {
-      alert(`Error opening invoice: ${err.message}`);
-    }
-  },
-
-  // ------------------------------------------------------------------------
-  // 6. COMPREHENSIVE REPORTING SYSTEM VIEW
-  // ------------------------------------------------------------------------
-  async renderReports() {
-    const container = document.getElementById('mainContainer');
-    container.innerHTML = `<div style="text-align:center; padding:40px;"><div class="stat-value">Generating Sales Reports...</div></div>`;
-
-    try {
-      const user = API.getUser();
-      const isAdmin = user.role === 'ADMIN';
-
-      const reportData = await API.getReport(this.reportTab, this.dateFilter);
-
-      const html = `
-        <div style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-          <div>
-            <h2>Sales & Battery Reports</h2>
-            <div style="font-size:0.85rem; color:var(--text-secondary);">Structured database sales analytics</div>
-          </div>
-          <button class="btn btn-secondary btn-sm" onclick="App.exportCurrentReport()">📥 Export CSV</button>
-        </div>
-
-        <!-- Filter Selector Bar -->
-        <div class="card" style="padding:16px; margin-bottom:16px;">
-          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; align-items:end;">
-            <div>
-              <label class="form-label">Date Filter Preset</label>
-              <select class="form-control" onchange="App.onReportPresetChange(this.value)">
-                <option value="this_month" ${this.dateFilter.preset === 'this_month' ? 'selected' : ''}>This Month</option>
-                <option value="today" ${this.dateFilter.preset === 'today' ? 'selected' : ''}>Today</option>
-                <option value="yesterday" ${this.dateFilter.preset === 'yesterday' ? 'selected' : ''}>Yesterday</option>
-                <option value="this_week" ${this.dateFilter.preset === 'this_week' ? 'selected' : ''}>This Week</option>
-                <option value="prev_week" ${this.dateFilter.preset === 'prev_week' ? 'selected' : ''}>Previous Week</option>
-                <option value="prev_month" ${this.dateFilter.preset === 'prev_month' ? 'selected' : ''}>Previous Month</option>
-                <option value="this_year" ${this.dateFilter.preset === 'this_year' ? 'selected' : ''}>This Year</option>
-                <option value="prev_year" ${this.dateFilter.preset === 'prev_year' ? 'selected' : ''}>Previous Year</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- Report Tabs Navigation -->
-        <div style="display:flex; gap:8px; margin-bottom:16px; overflow-x:auto; padding-bottom:6px;">
-          <button class="btn ${this.reportTab === 'hierarchical' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="App.switchReportTab('hierarchical')">
-            🌳 Drill-Down Tree (Seller → Customer → Battery)
-          </button>
-          ${isAdmin ? `<button class="btn ${this.reportTab === 'seller-wise' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="App.switchReportTab('seller-wise')">👤 Seller-Wise</button>` : ''}
-          <button class="btn ${this.reportTab === 'customer-wise' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="App.switchReportTab('customer-wise')">🏪 Customer-Wise</button>
-          <button class="btn ${this.reportTab === 'battery-wise' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="App.switchReportTab('battery-wise')">🔋 Battery-Wise</button>
-          <button class="btn ${this.reportTab === 'date-wise' ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="App.switchReportTab('date-wise')">📅 Date-Wise Timeline</button>
-        </div>
-
-        <!-- Report Body -->
-        <div id="reportBody">
-          ${this.renderReportTabBody(this.reportTab, reportData, isAdmin)}
-        </div>
-      `;
-
-      container.innerHTML = html;
-      this.currentReportData = reportData; // Store for CSV export
-    } catch (err) {
-      container.innerHTML = `<div class="card"><div class="badge badge-warning">Error generating report: ${err.message}</div></div>`;
-    }
-  },
-
-  onReportPresetChange(val) {
-    this.dateFilter.preset = val;
-    this.renderReports();
-  },
-
-  switchReportTab(tabName) {
-    this.reportTab = tabName;
-    this.renderReports();
-  },
-
-  renderReportTabBody(tabName, data, isAdmin) {
-    if (tabName === 'hierarchical') {
-      if (!data || data.length === 0) {
-        return `<div class="card"><div style="text-align:center; padding:20px; color:var(--text-muted);">No sales data available for this date period.</div></div>`;
-      }
-
-      return data.map(seller => `
-        <div class="tree-node">
-          <div class="tree-header" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
-            <div>
-              <strong style="font-size:1.1rem; color:var(--accent-blue);">👤 ${seller.seller_name}</strong>
-              <span style="font-size:0.85rem; color:var(--text-secondary); margin-left:8px;">(${seller.seller_shop})</span>
-            </div>
-            <div>
-              <span class="badge badge-success" style="margin-right:8px;">Total: ${seller.total_batteries} Batteries</span>
-              <span class="badge badge-warning">₹${seller.total_amount.toLocaleString('en-IN')}</span>
-            </div>
-          </div>
-
-          <div class="tree-body" style="display:block;">
-            ${seller.customers.map(cust => `
-              <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:12px; margin-bottom:10px;">
-                <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-weight:700;">
-                  <span style="color:var(--text-primary);">🏪 ${cust.customer_name} ${cust.customer_shop ? '(' + cust.customer_shop + ')' : ''}</span>
-                  <span style="color:var(--accent-emerald);">${cust.total_batteries} Units | ₹${cust.total_amount.toLocaleString('en-IN')}</span>
-                </div>
-
-                <div class="table-responsive">
-                  <table class="data-table" style="font-size:0.85rem;">
-                    <thead>
-                      <tr>
-                        <th>Battery Product</th>
-                        <th>Model Code</th>
-                        <th>Quantity Sold</th>
-                        <th>Total Revenue</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${cust.batteries.map(b => `
-                        <tr>
-                          <td><strong>${b.product_name}</strong></td>
-                          <td><code>${b.model_code}</code></td>
-                          <td><span class="badge badge-info">${b.quantity} qty</span></td>
-                          <td>₹${b.total_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `).join('');
-    } else if (tabName === 'seller-wise') {
-      return `
-        <div class="card">
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Seller / Partner Name</th>
-                  <th>Shop Name</th>
-                  <th>Mobile</th>
-                  <th>Customers</th>
-                  <th>Invoices</th>
-                  <th>Batteries Sold</th>
-                  <th>Total Revenue</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${data.map(s => `
-                  <tr>
-                    <td><strong>${s.name}</strong></td>
-                    <td>${s.shop_name || '-'}</td>
-                    <td>${s.phone || '-'}</td>
-                    <td>${s.total_customers}</td>
-                    <td>${s.total_invoices}</td>
-                    <td><span class="badge badge-success">${s.batteries_sold} units</span></td>
-                    <td><strong style="color:var(--accent-amber);">₹${s.total_sales.toLocaleString('en-IN')}</strong></td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
-    } else if (tabName === 'customer-wise') {
-      return `
-        <div class="card">
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Customer Name</th>
-                  <th>Shop / Garage</th>
-                  <th>Mobile</th>
-                  ${isAdmin ? '<th>Partner</th>' : ''}
-                  <th>Total Batteries Purchased</th>
-                  <th>Total Spent</th>
-                  <th>First Purchase</th>
-                  <th>Last Purchase</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${data.map(c => `
-                  <tr>
-                    <td><strong>${c.name}</strong></td>
-                    <td>${c.shop_name || '-'}</td>
-                    <td>${c.mobile}</td>
-                    ${isAdmin ? `<td><span class="badge badge-info">${c.partner_name}</span></td>` : ''}
-                    <td><span class="badge badge-success">${c.total_batteries} units</span></td>
-                    <td><strong style="color:var(--accent-emerald);">₹${c.total_spent.toLocaleString('en-IN')}</strong></td>
-                    <td>${c.first_purchase || '-'}</td>
-                    <td>${c.last_purchase || '-'}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
-    } else if (tabName === 'battery-wise') {
-      return `
-        <div class="card">
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Battery Product Name</th>
-                  <th>Model Code</th>
-                  <th>Selling Price</th>
-                  <th>Units Sold</th>
-                  <th>Total Revenue</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${data.map(b => `
-                  <tr>
-                    <td><strong>${b.name}</strong></td>
-                    <td><code>${b.model_code}</code></td>
-                    <td>₹${b.selling_price.toLocaleString('en-IN')}</td>
-                    <td><span class="badge badge-success">${b.total_units_sold} units</span></td>
-                    <td><strong style="color:var(--accent-amber);">₹${b.total_revenue.toLocaleString('en-IN')}</strong></td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
-    } else if (tabName === 'date-wise') {
-      return `
-        <div class="card">
-          <div class="table-responsive">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Invoices Issued</th>
-                  <th>Batteries Sold</th>
-                  <th>Daily Sales Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${data.map(d => `
-                  <tr>
-                    <td><strong>${d.invoice_date}</strong></td>
-                    <td>${d.invoice_count}</td>
-                    <td><span class="badge badge-success">${d.batteries_sold} units</span></td>
-                    <td><strong style="color:var(--accent-emerald);">₹${d.total_sales.toLocaleString('en-IN')}</strong></td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
-    }
-  },
-
-  exportCurrentReport() {
-    if (!this.currentReportData) return;
-    ExportUtil.exportToCSV(`Mechshakti_Report_${this.reportTab}_${this.dateFilter.preset}.csv`, this.currentReportData);
-  }
+// Mechshakti Sales Invoice Portal - Master Application Frontend Script
+let currentToken = localStorage.getItem('mech_token') || null;
+let currentUser = JSON.parse(localStorage.getItem('mech_user') || 'null');
+let currentTheme = localStorage.getItem('mech_theme') || 'dark';
+
+let currentInvoiceDraft = {
+  customer_id: null,
+  items: [],
+  payment_mode: 'PAID',
+  payment_method: 'CASH',
+  paid_amount: 0
 };
 
-// Initialize App when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => App.init());
+let activeScannerMode = 'NEW_BILL';
+let cameraStream = null;
+let activeSellerFilter = 'PENDING_APPROVAL';
+
+const tabTitlesMap = {
+  'dashboard': 'Home Dashboard',
+  'customers': 'Customers Directory',
+  'new-invoice': 'New Battery Bill',
+  'invoices': 'Invoices & Bills',
+  'payments': 'Payments Ledger',
+  'reports': 'Sales & Hierarchy Reports',
+  'warranty': 'Battery Warranty Portal',
+  'rewards': 'Referral & Rewards',
+  'profile': 'Account Profile & Settings',
+  'sellers': 'Partner Approvals & List',
+  'admin-warranties': 'Admin Warranty Queue',
+  'admin-search': 'Admin Global Search'
+};
+
+// Double submission & Loading State Utility (Sections 32 & 33)
+async function withLoadingState(btnElement, asyncFn) {
+  if (!btnElement) return await asyncFn();
+  const origText = btnElement.innerHTML;
+  btnElement.disabled = true;
+  btnElement.innerHTML = '⏳ Processing...';
+  try {
+    return await asyncFn();
+  } finally {
+    btnElement.disabled = false;
+    btnElement.innerHTML = origText;
+  }
+}
+
+// Audio Feedback Beep for QR Scanner (Section 20)
+function triggerAudioBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime); // 880Hz A5 pitch
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+  } catch (e) {}
+
+  if (navigator.vibrate) {
+    navigator.vibrate([100, 50, 100]);
+  }
+}
+
+// Initialize App
+document.addEventListener('DOMContentLoaded', () => {
+  applyTheme(currentTheme);
+  initAppStatus();
+
+  if (currentToken && currentUser) {
+    showAuthenticatedUI();
+    switchTab('dashboard');
+  } else {
+    showUnauthenticatedUI();
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration error:', err));
+  }
+});
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('mech_theme', theme);
+  const icon = document.getElementById('theme-icon');
+  const label = document.getElementById('theme-label');
+  if (icon) icon.textContent = theme === 'dark' ? '🌙' : '☀️';
+  if (label) label.textContent = theme === 'dark' ? 'Dark' : 'Light';
+}
+
+function toggleAppTheme() {
+  applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+}
+
+function toggleNavDrawer() {
+  const drawer = document.getElementById('nav-drawer');
+  drawer.style.display = (drawer.style.display === 'none' || !drawer.style.display) ? 'block' : 'none';
+}
+
+function initAppStatus() {
+  const updateOnlineStatus = () => {
+    const netStatus = document.getElementById('drawer-network-status');
+    if (netStatus) {
+      if (navigator.onLine) {
+        netStatus.textContent = '🟢 Online';
+        netStatus.style.color = 'var(--status-active-text)';
+      } else {
+        netStatus.textContent = '🔴 Offline';
+        netStatus.style.color = 'var(--status-rejected-text)';
+      }
+    }
+  };
+  window.addEventListener('online', updateOnlineStatus);
+  window.addEventListener('offline', updateOnlineStatus);
+  updateOnlineStatus();
+}
+
+function showAuthenticatedUI() {
+  const userDisp = document.getElementById('user-display');
+  if (userDisp) {
+    userDisp.textContent = `${currentUser.name} (${currentUser.role})`;
+  }
+  
+  const menuBtn = document.getElementById('btn-menu-toggle');
+  if (menuBtn) menuBtn.style.display = 'inline-block';
+
+  document.querySelector('.bottom-nav').style.display = 'flex';
+
+  if (currentUser.role === 'ADMIN') {
+    document.getElementById('drawer-admin-sellers-btn').style.display = 'block';
+    document.getElementById('drawer-admin-warranties-btn').style.display = 'block';
+    document.getElementById('drawer-admin-search-btn').style.display = 'block';
+  } else {
+    document.getElementById('drawer-admin-sellers-btn').style.display = 'none';
+    document.getElementById('drawer-admin-warranties-btn').style.display = 'none';
+    document.getElementById('drawer-admin-search-btn').style.display = 'none';
+  }
+}
+
+function showUnauthenticatedUI() {
+  const menuBtn = document.getElementById('btn-menu-toggle');
+  if (menuBtn) menuBtn.style.display = 'none';
+  document.querySelector('.bottom-nav').style.display = 'none';
+  showView('view-login');
+}
+
+function switchTab(tabId) {
+  if (!currentToken && tabId !== 'login' && tabId !== 'warranty') {
+    showUnauthenticatedUI();
+    return;
+  }
+
+  const subTitle = document.getElementById('header-active-tab-title');
+  if (subTitle && tabTitlesMap[tabId]) {
+    subTitle.textContent = tabTitlesMap[tabId];
+  }
+
+  document.querySelectorAll('.bottom-nav .nav-item').forEach(el => {
+    if (el.getAttribute('data-tab') === tabId) {
+      el.classList.add('active');
+    } else {
+      el.classList.remove('active');
+    }
+  });
+
+  if (tabId === 'dashboard') {
+    showView('view-dashboard');
+    loadDashboardStats();
+  } else if (tabId === 'customers') {
+    showView('view-customers');
+    loadCustomersList();
+  } else if (tabId === 'new-invoice') {
+    showView('view-new-invoice');
+    initNewBillWorkflow();
+  } else if (tabId === 'invoices') {
+    showView('view-invoices');
+    loadInvoicesList();
+  } else if (tabId === 'payments') {
+    showView('view-payments');
+    loadPaymentsList();
+  } else if (tabId === 'reports') {
+    showView('view-reports');
+    loadReportsTree();
+  } else if (tabId === 'warranty') {
+    showView('view-public-warranty');
+    setWarrantySubTab('REG');
+  } else if (tabId === 'rewards') {
+    showView('view-rewards');
+    loadRewardsSummary();
+    loadReferralsNetwork();
+  } else if (tabId === 'profile') {
+    showView('view-profile');
+    loadProfileDetails();
+  } else if (tabId === 'sellers') {
+    showView('view-admin-sellers');
+    loadAdminSellersList();
+  } else if (tabId === 'admin-warranties') {
+    showView('view-admin-warranties');
+    loadAdminWarrantiesQueue();
+  } else if (tabId === 'admin-search') {
+    showView('view-admin-search');
+  }
+}
+
+function showView(viewId) {
+  document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
+  const target = document.getElementById(viewId);
+  if (target) target.style.display = 'block';
+}
+
+async function apiRequest(endpoint, method = 'GET', data = null) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (currentToken) {
+    headers['Authorization'] = `Bearer ${currentToken}`;
+  }
+
+  const config = { method, headers };
+  if (data) {
+    config.body = JSON.stringify(data);
+  }
+
+  try {
+    const res = await fetch(endpoint, config);
+    const result = await res.json();
+    if (!res.ok) {
+      throw new Error(result.error || result.message || 'Server request failed');
+    }
+    return result;
+  } catch (err) {
+    throw err;
+  }
+}
+
+// 1. LOGIN HANDLER
+document.getElementById('form-login')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value;
+  const password = document.getElementById('login-password').value;
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/auth/login', 'POST', { email, password });
+      currentToken = res.token;
+      currentUser = res.user;
+      localStorage.setItem('mech_token', currentToken);
+      localStorage.setItem('mech_user', JSON.stringify(currentUser));
+
+      showAuthenticatedUI();
+      switchTab('dashboard');
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+});
+
+document.getElementById('btn-logout')?.addEventListener('click', () => {
+  currentToken = null;
+  currentUser = null;
+  localStorage.removeItem('mech_token');
+  localStorage.removeItem('mech_user');
+  toggleNavDrawer();
+  showUnauthenticatedUI();
+});
+
+function openRegisterModal() { document.getElementById('modal-register').style.display = 'flex'; }
+function closeRegisterModal() { document.getElementById('modal-register').style.display = 'none'; }
+
+document.getElementById('form-register')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('reg-name').value;
+  const mobile = document.getElementById('reg-mobile').value;
+  const email = document.getElementById('reg-email').value;
+  const password = document.getElementById('reg-password').value;
+  const confirm_password = document.getElementById('reg-confirm-password').value;
+  const shop_name = document.getElementById('reg-shop').value;
+  const city = document.getElementById('reg-city').value;
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/auth/register', 'POST', {
+        name, mobile, email, password, confirm_password, shop_name, city
+      });
+      closeRegisterModal();
+      alert(`Registration Submitted!\n${res.sub_message}`);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+});
+
+// WARRANTY SYSTEM HANDLERS
+function showPublicWarrantyView(mode = 'REG') {
+  showView('view-public-warranty');
+  setWarrantySubTab(mode === 'REG' ? 'REG' : 'CHK');
+}
+
+function hidePublicWarrantyView() {
+  if (currentToken) switchTab('dashboard');
+  else showView('view-login');
+}
+
+function setWarrantySubTab(tab) {
+  if (tab === 'REG') {
+    document.getElementById('section-w-reg').style.display = 'block';
+    document.getElementById('section-w-chk').style.display = 'none';
+    document.getElementById('tab-w-reg').className = 'btn btn-primary btn-sm';
+    document.getElementById('tab-w-chk').className = 'btn btn-secondary btn-sm';
+  } else {
+    document.getElementById('section-w-reg').style.display = 'none';
+    document.getElementById('section-w-chk').style.display = 'block';
+    document.getElementById('tab-w-reg').className = 'btn btn-secondary btn-sm';
+    document.getElementById('tab-w-chk').className = 'btn btn-primary btn-sm';
+  }
+}
+
+async function validateWarrantySerialBeforeSubmit() {
+  const code = document.getElementById('w-reg-code').value.trim();
+  const feedback = document.getElementById('w-reg-serial-feedback');
+  if (!code) {
+    feedback.style.display = 'none';
+    return;
+  }
+
+  feedback.style.display = 'block';
+  feedback.className = 'status-pill';
+  feedback.textContent = 'Verifying battery serial...';
+
+  try {
+    const res = await apiRequest(`/api/warranty/validate-serial?code=${encodeURIComponent(code)}`);
+    if (res.requires_admin_verification) {
+      feedback.style.background = 'rgba(2, 132, 199, 0.18)';
+      feedback.style.color = '#38bdf8';
+      feedback.textContent = 'ℹ️ Serial not in sales registry. Registration will require Admin verification.';
+    } else {
+      feedback.style.background = 'rgba(34, 197, 94, 0.15)';
+      feedback.style.color = '#22c55e';
+      feedback.textContent = `✓ ${res.message}`;
+    }
+  } catch (err) {
+    feedback.style.background = 'rgba(239, 68, 68, 0.18)';
+    feedback.style.color = '#ef4444';
+    feedback.innerHTML = `⚠ <strong>${err.message}</strong> <button type="button" class="btn btn-secondary btn-sm" onclick="setWarrantySubTab('CHK'); document.getElementById('w-chk-code').value='${code}'; checkPublicWarranty();" style="margin-left:8px; padding:2px 8px;">Check Status</button>`;
+  }
+}
+
+document.getElementById('w-reg-code')?.addEventListener('blur', validateWarrantySerialBeforeSubmit);
+
+document.getElementById('form-public-warranty-reg')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const battery_code = document.getElementById('w-reg-code').value.trim();
+  const customer_name = document.getElementById('w-reg-name').value.trim();
+  const customer_mobile = document.getElementById('w-reg-mobile').value.trim();
+  const purchase_date = document.getElementById('w-reg-date').value;
+  const vehicle_number = document.getElementById('w-reg-vehicle').value.trim();
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/warranty/register', 'POST', {
+        battery_code, customer_name, customer_mobile, purchase_date, vehicle_number
+      });
+
+      const resCard = document.getElementById('w-reg-success-card');
+      resCard.style.display = 'block';
+      resCard.innerHTML = `
+        <div style="background:var(--bg-card-elevated); border:1px solid var(--status-active-border); border-radius:12px; padding:16px; margin-top:16px;">
+          <strong style="color:var(--status-active-text); font-size:1.15rem;">✓ WARRANTY REGISTERED</strong>
+          <div style="font-size:0.9rem; margin-top:8px;"><strong>Serial Code:</strong> ${res.battery_code}</div>
+          <div style="font-size:0.9rem;"><strong>Purchase Date:</strong> ${res.purchase_date}</div>
+          <div style="font-size:0.9rem;"><strong>Warranty Valid Until:</strong> ${res.expiry_date}</div>
+          <div style="font-size:0.9rem;"><strong>Registered Timestamp:</strong> ${res.registered_at}</div>
+          <div style="font-size:0.9rem;"><strong>Warranty Status:</strong> <span class="badge badge-active">${res.status}</span></div>
+        </div>
+      `;
+
+      document.getElementById('form-public-warranty-reg').reset();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+});
+
+async function checkPublicWarranty() {
+  const code = document.getElementById('w-chk-code').value.trim();
+  if (!code) return alert('Please enter a battery serial code.');
+
+  const resContainer = document.getElementById('w-chk-result');
+  resContainer.style.display = 'block';
+  resContainer.innerHTML = '<div style="color: var(--text-muted);">Searching...</div>';
+
+  try {
+    const res = await apiRequest(`/api/warranty/check?code=${encodeURIComponent(code)}`);
+    if (!res.found) {
+      resContainer.innerHTML = `<div style="color: var(--mech-orange); padding:10px;">✕ ${res.message}</div>`;
+      return;
+    }
+
+    const w = res.warranty;
+    resContainer.innerHTML = `
+      <div style="background: var(--bg-card-elevated); border: 1px solid var(--border-color); border-radius: 10px; padding: 14px;">
+        <strong style="color: var(--mech-orange); font-size: 1.05rem;">✓ Mechshakti Battery Warranty</strong>
+        <div style="font-size: 0.9rem; margin-top: 6px;"><strong>Product:</strong> ${w.product_name || 'Mechshakti Battery'}</div>
+        <div style="font-size: 0.9rem;"><strong>Serial:</strong> ${w.battery_code}</div>
+        <div style="font-size: 0.9rem;"><strong>Purchase Date:</strong> ${w.purchase_date}</div>
+        <div style="font-size: 0.9rem;"><strong>Warranty Expiry:</strong> ${w.expiry_date}</div>
+        <div style="font-size: 0.9rem;"><strong>Registered Timestamp:</strong> ${w.registered_at}</div>
+        <div style="font-size: 0.9rem; margin-top: 4px;"><strong>Status:</strong> <span class="badge ${w.status === 'VALID' ? 'badge-active' : 'badge-pending'}">${w.status}</span></div>
+      </div>
+    `;
+  } catch (err) {
+    resContainer.innerHTML = `<div style="color: red; padding:10px;">${err.message}</div>`;
+  }
+}
+
+// DASHBOARD STATS
+async function loadDashboardStats() {
+  try {
+    const data = await apiRequest('/api/reports/dashboard?preset=today');
+    document.getElementById('stat-today-sales').textContent = `₹${data.today_sales.toLocaleString('en-IN')}`;
+    document.getElementById('stat-today-collected').textContent = `₹${data.today_collected.toLocaleString('en-IN')}`;
+    document.getElementById('stat-total-outstanding').textContent = `₹${data.total_outstanding.toLocaleString('en-IN')}`;
+    document.getElementById('stat-today-batteries').textContent = data.today_batteries;
+
+    if (currentUser.role === 'ADMIN' && data.pending_partners_count > 0) {
+      document.getElementById('dash-admin-approval-banner').style.display = 'flex';
+      const badge = document.getElementById('admin-pending-badge');
+      if (badge) {
+        badge.style.display = 'inline-block';
+        document.getElementById('admin-pending-count').textContent = `[ ${data.pending_partners_count} ]`;
+      }
+    } else {
+      document.getElementById('dash-admin-approval-banner').style.display = 'none';
+      const badge = document.getElementById('admin-pending-badge');
+      if (badge) badge.style.display = 'none';
+    }
+  } catch (err) {
+    console.log('Error loading dashboard stats:', err);
+  }
+}
+
+// NEW BILL WORKFLOW
+async function initNewBillWorkflow() {
+  currentInvoiceDraft = { customer_id: null, items: [], payment_mode: 'PAID', payment_method: 'CASH', paid_amount: 0 };
+  renderBillItemsTable();
+
+  const custSelect = document.getElementById('bill-customer-select');
+  custSelect.innerHTML = '<option value="">-- Choose Customer --</option>';
+  try {
+    const customers = await apiRequest('/api/customers');
+    customers.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.name} (${c.mobile}) - ${c.shop_name || 'Individual'}`;
+      custSelect.appendChild(opt);
+    });
+  } catch (err) { console.log(err); }
+
+  const prodSelect = document.getElementById('bill-product-select');
+  prodSelect.innerHTML = '<option value="">-- Select Battery --</option>';
+  try {
+    const products = await apiRequest('/api/products');
+    products.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = `${p.model_code} - ${p.name} (₹${p.selling_price})`;
+      prodSelect.appendChild(opt);
+    });
+  } catch (err) { console.log(err); }
+}
+
+async function onBillCustomerSelected() {
+  const custId = document.getElementById('bill-customer-select').value;
+  currentInvoiceDraft.customer_id = custId ? parseInt(custId) : null;
+  onBillProductSelected();
+}
+
+async function onBillProductSelected() {
+  const custId = document.getElementById('bill-customer-select').value;
+  const prodId = document.getElementById('bill-product-select').value;
+  const rateInput = document.getElementById('bill-rate-input');
+  const badge = document.getElementById('rate-auto-badge');
+
+  if (!custId || !prodId) {
+    badge.textContent = '';
+    return;
+  }
+
+  try {
+    const res = await apiRequest(`/api/customers/${custId}/last-rate?product_id=${prodId}`);
+    rateInput.value = res.rate;
+    badge.textContent = res.source === 'PREVIOUS_CUSTOMER_RATE' ? '(Auto-Fetched Previous Rate)' : '(Catalog Rate)';
+  } catch (err) {
+    badge.textContent = '';
+  }
+}
+
+// SELLER OTHER PRODUCT MODAL HANDLERS (Sections 10, 11, 12)
+function openOtherProductModal() { document.getElementById('modal-other-product').style.display = 'flex'; }
+function closeOtherProductModal() { document.getElementById('modal-other-product').style.display = 'none'; }
+
+document.getElementById('form-other-product')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('other-prod-name').value.trim();
+  const price = parseFloat(document.getElementById('other-prod-price').value || '0');
+  const qty = parseInt(document.getElementById('other-prod-qty').value || '1');
+  const gst = parseFloat(document.getElementById('other-prod-gst').value || '18');
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/products/custom', 'POST', {
+        name, selling_price: price, gst_rate: gst
+      });
+      closeOtherProductModal();
+      alert(res.message);
+
+      const p = res.product;
+      const line_base = (p.selling_price * qty);
+      const line_gst = line_base * (p.gst_rate / 100.0);
+      
+      const item = {
+        product_id: p.id,
+        product_label: `${p.name} (Custom)`,
+        unit_price: p.selling_price,
+        quantity: qty,
+        battery_code: null,
+        discount: 0,
+        gst_rate: p.gst_rate,
+        total: line_base + line_gst
+      };
+
+      currentInvoiceDraft.items.push(item);
+      renderBillItemsTable();
+      initNewBillWorkflow();
+    } catch (err) { alert(err.message); }
+  });
+});
+
+function addBillItem() {
+  const prodSelect = document.getElementById('bill-product-select');
+  const prodId = parseInt(prodSelect.value);
+  const rate = parseFloat(document.getElementById('bill-rate-input').value);
+  const qty = parseInt(document.getElementById('bill-qty-input').value);
+  const scannedText = document.getElementById('bill-scanned-code-text').textContent;
+
+  if (!prodId) return alert('Please select a battery model.');
+  if (rate <= 0) return alert('Please enter a valid rate.');
+
+  const optText = prodSelect.options[prodSelect.selectedIndex].text;
+  const item = {
+    product_id: prodId,
+    product_label: optText.split(' - ')[0],
+    unit_price: rate,
+    quantity: qty,
+    battery_code: scannedText || null,
+    discount: 0,
+    gst_rate: 18.0,
+    total: rate * qty * 1.18
+  };
+
+  currentInvoiceDraft.items.push(item);
+  document.getElementById('bill-scanned-card').style.display = 'none';
+  document.getElementById('bill-scanned-code-text').textContent = '';
+  renderBillItemsTable();
+}
+
+function renderBillItemsTable() {
+  const container = document.getElementById('bill-items-table-container');
+  if (currentInvoiceDraft.items.length === 0) {
+    container.innerHTML = '<div style="font-size:0.85rem; color:var(--text-muted); text-align:center;">No items added to current bill yet.</div>';
+    return;
+  }
+
+  let html = `
+    <table class="table" style="font-size:0.85rem;">
+      <thead>
+        <tr><th>Model</th><th>Rate</th><th>Qty</th><th>Total</th><th>Action</th></tr>
+      </thead>
+      <tbody>
+  `;
+  let grand = 0;
+  currentInvoiceDraft.items.forEach((it, idx) => {
+    grand += it.total;
+    html += `
+      <tr>
+        <td>${it.product_label} ${it.battery_code ? `<br><small style="color:var(--mech-orange); font-family:monospace;">${it.battery_code}</small>` : ''}</td>
+        <td>₹${it.unit_price}</td>
+        <td>${it.quantity}</td>
+        <td>₹${Math.round(it.total)}</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="removeBillItem(${idx})">✕</button></td>
+      </tr>
+    `;
+  });
+  html += `</tbody></table><div style="text-align:right; font-weight:700; font-size:1.05rem; margin-top:8px;">Grand Total: ₹${Math.round(grand)}</div>`;
+  container.innerHTML = html;
+}
+
+function removeBillItem(idx) {
+  currentInvoiceDraft.items.splice(idx, 1);
+  renderBillItemsTable();
+}
+
+function onBillPaymentModeChanged() {
+  const mode = document.getElementById('bill-payment-mode').value;
+  const pGroup = document.getElementById('bill-paid-amount-group');
+  pGroup.style.display = mode === 'PARTIAL' ? 'block' : 'none';
+}
+
+function onBillPaymentMethodChanged() {
+  const method = document.getElementById('bill-payment-method').value;
+  const upiCard = document.getElementById('seller-upi-qr-card');
+  if (method === 'UPI') {
+    upiCard.style.display = 'block';
+    document.getElementById('seller-upi-id-display').textContent = currentUser.upi_id ? `UPI ID: ${currentUser.upi_id}` : 'Seller UPI ID: mechshakti@upi';
+  } else {
+    upiCard.style.display = 'none';
+  }
+}
+
+async function submitGenerateInvoice() {
+  if (!currentInvoiceDraft.customer_id) return alert('Please select a customer.');
+  if (currentInvoiceDraft.items.length === 0) return alert('Please add at least one battery model.');
+
+  const mode = document.getElementById('bill-payment-mode').value;
+  const method = document.getElementById('bill-payment-method').value;
+  const paid = parseFloat(document.getElementById('bill-paid-amount').value || '0');
+
+  try {
+    const res = await apiRequest('/api/invoices', 'POST', {
+      customer_id: currentInvoiceDraft.customer_id,
+      items: currentInvoiceDraft.items,
+      payment_mode: mode,
+      payment_method: method,
+      paid_amount: paid
+    });
+
+    alert(`✓ Bill Generated Successfully!\nInvoice #: ${res.invoice_number}\nGrand Total: ₹${res.grand_total}`);
+    openInvoicePreviewModal(res.id);
+    switchTab('invoices');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+// INVOICE PREVIEW
+let activePreviewInvoice = null;
+
+async function openInvoicePreviewModal(invId) {
+  try {
+    const res = await apiRequest(`/api/invoices/${invId}`);
+    activePreviewInvoice = res;
+    const inv = res.invoice;
+    const items = res.items;
+
+    let itemsHtml = items.map(it => `
+      <tr>
+        <td>${it.product_name_snapshot} (${it.model_code_snapshot}) ${it.battery_code ? `<br><small style="font-family:monospace; color:var(--mech-orange);">${it.battery_code}</small>` : ''}</td>
+        <td>₹${it.unit_price}</td>
+        <td>${it.quantity}</td>
+        <td>₹${it.line_total}</td>
+      </tr>
+    `).join('');
+
+    document.getElementById('invoice-preview-body').innerHTML = `
+      <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:10px; padding:16px;">
+        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border-color); padding-bottom:12px; margin-bottom:12px;">
+          <div>
+            <strong style="color:var(--mech-orange); font-size:1.2rem;">MECHSHAKTI BATTERIES</strong>
+            <div>${inv.seller_shop || inv.seller_name}</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Phone: ${inv.seller_phone || ''}</div>
+          </div>
+          <div style="text-align:right;">
+            <strong style="font-size:1.1rem;">TAX INVOICE</strong>
+            <div style="font-family:monospace; font-weight:700; color:var(--mech-orange);">${inv.invoice_number}</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">${inv.invoice_date}</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <strong>Billed To:</strong>
+          <div>${inv.customer_name} (${inv.customer_shop || 'Individual'})</div>
+          <div style="font-size:0.85rem; color:var(--text-muted);">${inv.customer_mobile}</div>
+        </div>
+
+        <table class="table" style="font-size:0.85rem; margin-bottom:12px;">
+          <thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead>
+          <tbody>${itemsHtml}</tbody>
+        </table>
+
+        <div style="text-align:right; font-size:0.95rem;">
+          <div>Grand Total: <strong>₹${inv.grand_total}</strong></div>
+          <div>Paid: <strong style="color:green;">₹${inv.paid_amount}</strong></div>
+          <div>Outstanding: <strong style="color:red;">₹${inv.outstanding}</strong></div>
+        </div>
+      </div>
+    `;
+    document.getElementById('modal-invoice-preview').style.display = 'flex';
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function closeInvoicePreviewModal() {
+  document.getElementById('modal-invoice-preview').style.display = 'none';
+}
+
+function downloadInvoicePDF() { window.print(); }
+
+function shareInvoiceWhatsApp() {
+  if (!activePreviewInvoice) return;
+  const inv = activePreviewInvoice.invoice;
+  const text = `*MECHSHAKTI BATTERY INVOICE*\nInvoice #: ${inv.invoice_number}\nDate: ${inv.invoice_date}\nCustomer: ${inv.customer_name}\nTotal: ₹${inv.grand_total}\nPaid: ₹${inv.paid_amount}\nOutstanding: ₹${inv.outstanding}\nThank you for choosing Mechshakti!`;
+  const url = `https://api.whatsapp.com/send?phone=91${inv.customer_mobile}&text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank');
+}
+
+// CUSTOMER MANAGEMENT (EDIT, ARCHIVE, LEDGER - Sections 5, 6, 7, 17)
+let activeCustomersList = [];
+
+async function loadCustomersList() {
+  const container = document.getElementById('customers-list-container');
+  container.innerHTML = 'Loading customers...';
+  try {
+    activeCustomersList = await apiRequest('/api/customers');
+    renderFilteredCustomers(activeCustomersList);
+  } catch (err) { container.innerHTML = `<div class="card">${err.message}</div>`; }
+}
+
+function filterCustomersList() {
+  const q = (document.getElementById('customer-search-input')?.value || '').toLowerCase().trim();
+  if (!q) {
+    renderFilteredCustomers(activeCustomersList);
+    return;
+  }
+  const filtered = activeCustomersList.filter(c => 
+    c.name.toLowerCase().includes(q) || 
+    c.mobile.includes(q) || 
+    (c.shop_name && c.shop_name.toLowerCase().includes(q))
+  );
+  renderFilteredCustomers(filtered);
+}
+
+function renderFilteredCustomers(list) {
+  const container = document.getElementById('customers-list-container');
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div class="card" style="text-align:center; padding:24px;">
+        <div style="font-size:1.1rem; font-weight:700; margin-bottom:8px;">No customers found.</div>
+        <button class="btn btn-primary btn-sm" onclick="openCustomerModal()">+ Add Customer</button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = list.map(c => `
+    <div class="card" style="margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:start;">
+        <div>
+          <strong style="font-size:1.05rem;">${c.name}</strong>
+          <div style="font-size:0.85rem; color:var(--text-muted);">${c.mobile} | ${c.shop_name || 'Individual'}</div>
+          ${c.city ? `<div style="font-size:0.8rem; color:var(--text-muted);">City: ${c.city}</div>` : ''}
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:0.8rem; color:var(--text-muted);">Outstanding</div>
+          <strong style="color:${c.outstanding_balance > 0 ? 'red' : 'green'}; font-size:1.05rem;">₹${c.outstanding_balance}</strong>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:6px; margin-top:12px; border-top:1px solid var(--border-color); padding-top:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="openCustomerLedgerModal(${c.id})" style="flex:1;">📜 Khatabook</button>
+        <button class="btn btn-secondary btn-sm" onclick="openEditCustomerModal(${c.id})" style="flex:1;">✏️ Edit</button>
+        <button class="btn btn-secondary btn-sm" onclick="archiveCustomer(${c.id})" style="flex:1; color:var(--status-rejected-text);">📦 Archive</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openEditCustomerModal(custId) {
+  const cust = activeCustomersList.find(c => c.id === custId);
+  if (!cust) return;
+  document.getElementById('edit-cust-id').value = cust.id;
+  document.getElementById('edit-cust-name').value = cust.name;
+  document.getElementById('edit-cust-mobile').value = cust.mobile;
+  document.getElementById('edit-cust-shop').value = cust.shop_name || '';
+  document.getElementById('edit-cust-city').value = cust.city || '';
+  document.getElementById('edit-cust-address').value = cust.address || '';
+  document.getElementById('modal-edit-customer').style.display = 'flex';
+}
+function closeEditCustomerModal() { document.getElementById('modal-edit-customer').style.display = 'none'; }
+
+document.getElementById('form-edit-customer')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const cId = document.getElementById('edit-cust-id').value;
+  const name = document.getElementById('edit-cust-name').value;
+  const mobile = document.getElementById('edit-cust-mobile').value;
+  const shop_name = document.getElementById('edit-cust-shop').value;
+  const city = document.getElementById('edit-cust-city').value;
+  const address = document.getElementById('edit-cust-address').value;
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest(`/api/customers/${cId}`, 'PUT', { name, mobile, shop_name, city, address });
+      closeEditCustomerModal();
+      alert(res.message);
+      loadCustomersList();
+    } catch (err) { alert(err.message); }
+  });
+});
+
+async function archiveCustomer(custId) {
+  if (!confirm('Are you sure you want to archive this customer?')) return;
+  try {
+    const res = await apiRequest(`/api/customers/${custId}`, 'DELETE');
+    alert(res.message);
+    loadCustomersList();
+  } catch (err) { alert(err.message); }
+}
+
+async function openCustomerLedgerModal(custId) {
+  const container = document.getElementById('customer-ledger-body');
+  container.innerHTML = 'Loading statement...';
+  document.getElementById('modal-customer-ledger').style.display = 'flex';
+
+  try {
+    const data = await apiRequest(`/api/customers/${custId}/ledger`);
+    const c = data.customer;
+    let txHtml = data.transactions.map(t => `
+      <tr>
+        <td>${t.tx_date}</td>
+        <td>${t.type === 'PURCHASE' ? `Bill #${t.invoice_number}` : `Payment (${t.status})`}</td>
+        <td style="color:${t.type==='PURCHASE'?'red':'green'}; font-weight:700;">${t.type === 'PURCHASE' ? `+₹${t.amount}` : `-₹${t.amount}`}</td>
+        <td>₹${t.running_balance}</td>
+      </tr>
+    `).join('');
+
+    container.innerHTML = `
+      <div style="margin-bottom:12px;">
+        <strong style="font-size:1.1rem; color:var(--mech-orange);">${c.name}</strong> (${c.mobile})
+        <div>Shop: ${c.shop_name || 'Individual'}</div>
+        <div style="display:flex; justify-content:space-between; margin-top:8px; background:var(--bg-card-elevated); padding:8px 12px; border-radius:8px;">
+          <div>Total Billed: <strong>₹${data.total_billed}</strong></div>
+          <div>Total Paid: <strong style="color:green;">₹${data.total_paid}</strong></div>
+          <div>Outstanding: <strong style="color:red;">₹${data.outstanding_balance}</strong></div>
+        </div>
+      </div>
+      <table class="table" style="font-size:0.85rem;">
+        <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Balance</th></tr></thead>
+        <tbody>${txHtml || '<tr><td colspan="4" style="text-align:center;">No transactions yet.</td></tr>'}</tbody>
+      </table>
+    `;
+  } catch (err) { container.innerHTML = `<div style="color:red;">${err.message}</div>`; }
+}
+function closeCustomerLedgerModal() { document.getElementById('modal-customer-ledger').style.display = 'none'; }
+
+// ADMIN PARTNERS & SELLERS QUEUE
+function setSellerFilter(status) {
+  activeSellerFilter = status;
+  loadAdminSellersList();
+}
+
+async function loadAdminSellersList() {
+  const container = document.getElementById('admin-sellers-list-container');
+  if (!container) return;
+  container.innerHTML = 'Loading partners list...';
+
+  try {
+    const data = await apiRequest(`/api/admin/sellers?status=${activeSellerFilter}`);
+    const sellers = data.sellers;
+
+    if (sellers.length === 0) {
+      container.innerHTML = `<div class="card">No partners found for status filter '${activeSellerFilter}'.</div>`;
+      return;
+    }
+
+    container.innerHTML = sellers.map(s => `
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:start;">
+          <div>
+            <strong style="font-size:1.1rem; color:var(--text-main);">${s.name}</strong>
+            <div style="font-size:0.85rem; color:var(--text-muted);">${s.shop_name} | ${s.city}</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Phone: ${s.phone} | Email: ${s.email}</div>
+            ${s.dealer_code ? `<div style="font-size:0.8rem; color:var(--mech-orange);">Dealer Code: ${s.dealer_code}</div>` : ''}
+          </div>
+          <div>
+            <span class="badge ${s.status === 'ACTIVE' ? 'badge-active' : (s.status === 'PENDING_APPROVAL' ? 'badge-pending' : 'badge-rejected')}">${s.status}</span>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:12px; border-top:1px solid var(--border-color); padding-top:10px;">
+          ${s.status === 'PENDING_APPROVAL' ? `
+            <button class="btn btn-primary btn-sm" onclick="updatePartnerStatus(${s.id}, 'APPROVE')">✓ Approve Partner</button>
+            <button class="btn btn-secondary btn-sm" onclick="updatePartnerStatus(${s.id}, 'REJECT')">✕ Reject</button>
+          ` : ''}
+          ${s.status === 'ACTIVE' ? `
+            <button class="btn btn-secondary btn-sm" onclick="updatePartnerStatus(${s.id}, 'SUSPEND')">🚫 Suspend Partner</button>
+          ` : ''}
+          ${s.status === 'SUSPENDED' || s.status === 'REJECTED' ? `
+            <button class="btn btn-primary btn-sm" onclick="updatePartnerStatus(${s.id}, 'ACTIVATE')">✓ Activate Partner</button>
+          ` : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch (err) { container.innerHTML = err.message; }
+}
+
+async function updatePartnerStatus(sellerId, action) {
+  let rejection_reason = '';
+  if (action === 'REJECT') {
+    rejection_reason = prompt('Enter rejection reason for this partner account:') || '';
+  }
+
+  try {
+    const res = await apiRequest(`/api/admin/sellers/${sellerId}/status`, 'PUT', { action, rejection_reason });
+    alert(res.message);
+    loadAdminSellersList();
+    loadDashboardStats();
+  } catch (err) { alert(err.message); }
+}
+
+// ADMIN WARRANTY QUEUE
+async function loadAdminWarrantiesQueue() {
+  const container = document.getElementById('admin-warranties-list-container');
+  if (!container) return;
+  container.innerHTML = 'Loading pending warranty registrations...';
+
+  try {
+    const data = await apiRequest('/api/admin/warranties?status=PENDING_VERIFICATION');
+    const list = data.warranties;
+
+    if (list.length === 0) {
+      container.innerHTML = '<div class="card">No pending warranty registrations requiring Admin approval.</div>';
+      return;
+    }
+
+    container.innerHTML = list.map(w => `
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between;">
+          <div>
+            <strong style="color:var(--mech-orange); font-size:1.05rem;">Serial: ${w.battery_code}</strong>
+            <div style="font-size:0.85rem;">Customer: ${w.customer_name} (${w.customer_mobile})</div>
+            <div style="font-size:0.8rem; color:var(--text-muted);">Purchase Date: ${w.purchase_date} | Registered: ${w.created_at}</div>
+          </div>
+          <div>
+            <span class="badge badge-pending">${w.status}</span>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:12px;">
+          <button class="btn btn-primary btn-sm" onclick="adminApproveWarranty(${w.id})">✓ Approve Warranty</button>
+          <button class="btn btn-secondary btn-sm" onclick="adminCancelWarranty(${w.id})">✕ Cancel / Override</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (err) { container.innerHTML = err.message; }
+}
+
+async function adminApproveWarranty(wId) {
+  try {
+    const res = await apiRequest(`/api/admin/warranties/${wId}/approve`, 'PUT');
+    alert(res.message);
+    loadAdminWarrantiesQueue();
+  } catch (err) { alert(err.message); }
+}
+
+async function adminCancelWarranty(wId) {
+  const reason = prompt('Enter audit reason for cancelling this warranty registration:');
+  if (!reason) return;
+
+  try {
+    const res = await apiRequest(`/api/admin/warranties/${wId}/cancel`, 'PUT', { reason });
+    alert(res.message);
+    loadAdminWarrantiesQueue();
+  } catch (err) { alert(err.message); }
+}
+
+// PROFILE DETAILS
+async function loadProfileDetails() {
+  document.getElementById('prof-display-name').textContent = currentUser.name;
+  document.getElementById('prof-display-email').textContent = currentUser.email;
+  document.getElementById('prof-display-role-badge').textContent = currentUser.role;
+
+  document.getElementById('prof-phone').value = currentUser.phone || 'N/A';
+  document.getElementById('prof-shop').value = currentUser.shop_name || 'N/A';
+  document.getElementById('prof-city').value = currentUser.city || 'N/A';
+  document.getElementById('prof-upi-id').value = currentUser.upi_id || '';
+}
+
+async function saveProfileUPI() {
+  const upi = document.getElementById('prof-upi-id').value.trim();
+  try {
+    await apiRequest('/api/profile/upi', 'POST', { upi_id: upi });
+    currentUser.upi_id = upi;
+    localStorage.setItem('mech_user', JSON.stringify(currentUser));
+    alert('✓ UPI details saved successfully!');
+  } catch (err) { alert(err.message); }
+}
+
+// PAYMENTS LIST & MODAL
+async function loadPaymentsList() {
+  const container = document.getElementById('payments-list-container');
+  if (!container) return;
+  container.innerHTML = 'Loading payment transactions...';
+
+  try {
+    const list = await apiRequest('/api/payments');
+    if (list.length === 0) {
+      container.innerHTML = '<div class="card" style="text-align:center; padding:24px;">No payment transactions recorded yet.</div>';
+      return;
+    }
+
+    container.innerHTML = list.map(p => `
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong style="color:var(--text-main);">${p.customer_name}</strong>
+            <div style="font-size:0.85rem; color:var(--text-muted);">${p.payment_date} | Method: <strong>${p.payment_method}</strong></div>
+            ${p.reference_no ? `<div style="font-size:0.8rem; color:var(--mech-orange);">Ref: ${p.reference_no}</div>` : ''}
+          </div>
+          <div style="font-size:1.15rem; font-weight:800; color:#22c55e;">
+            +₹${p.amount}
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch (err) { container.innerHTML = err.message; }
+}
+
+function openPaymentModal() {
+  const select = document.getElementById('pay-customer-select');
+  select.innerHTML = '<option value="">-- Select Customer --</option>';
+  apiRequest('/api/customers').then(custs => {
+    custs.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.name} (${c.mobile}) - Outstanding: ₹${c.outstanding_balance}`;
+      select.appendChild(opt);
+    });
+  });
+  document.getElementById('modal-payment').style.display = 'flex';
+}
+function closePaymentModal() { document.getElementById('modal-payment').style.display = 'none'; }
+
+document.getElementById('form-payment')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const customer_id = parseInt(document.getElementById('pay-customer-select').value);
+  const amount = parseFloat(document.getElementById('pay-amount').value);
+  const payment_method = document.getElementById('pay-method').value;
+  const reference_no = document.getElementById('pay-ref').value;
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/payments', 'POST', { customer_id, amount, payment_method, reference_no });
+      closePaymentModal();
+      alert('✓ Payment recorded successfully!');
+      if (document.getElementById('view-payments').style.display !== 'none') {
+        loadPaymentsList();
+      } else {
+        loadDashboardStats();
+      }
+    } catch (err) { alert(err.message); }
+  });
+});
+
+// REWARDS & REFERRALS
+async function loadRewardsSummary() {
+  try {
+    const data = await apiRequest('/api/rewards/summary');
+    document.getElementById('reward-avail-pts').textContent = data.available_points.toFixed(2);
+    document.getElementById('reward-lifetime-pts').textContent = data.lifetime_earned.toFixed(2);
+
+    const list = document.getElementById('reward-txns-list');
+    if (data.transactions.length === 0) {
+      list.innerHTML = '<div style="font-size:0.85rem; color:var(--text-muted);">No reward transactions yet. Earn points when your referral network sells batteries!</div>';
+      return;
+    }
+    list.innerHTML = data.transactions.map(t => `
+      <div style="background:var(--bg-card-elevated); border:1px solid var(--border-color); border-radius:8px; padding:10px; margin-bottom:8px; display:flex; justify-content:space-between; font-size:0.85rem;">
+        <div>
+          <strong>${t.product_name}</strong> (Level ${t.referral_level})
+          <div style="color:var(--text-muted); font-size:0.75rem;">${t.created_at}</div>
+        </div>
+        <div style="font-weight:700; color:var(--status-active-text);">+${t.points_earned} pts</div>
+      </div>
+    `).join('');
+  } catch (err) { console.log(err); }
+}
+
+async function loadReferralsNetwork() {
+  try {
+    const data = await apiRequest('/api/referrals/network');
+    const container = document.getElementById('referrals-network-tree');
+    if (data.referrals.length === 0) {
+      container.innerHTML = '<div style="font-size:0.85rem; color:var(--text-muted);">No referred partners linked yet. Tap "+ Refer Person" to build your network!</div>';
+      return;
+    }
+    container.innerHTML = data.referrals.map(r => `
+      <div style="background:var(--bg-card); border-left:3px solid var(--mech-orange); padding:8px 12px; margin-bottom:6px; font-size:0.85rem;">
+        <strong>${r.name}</strong> (${r.shop_name || 'Garage'}) - ${r.city}
+      </div>
+    `).join('');
+  } catch (err) { console.log(err); }
+}
+
+function openReferralModal() { document.getElementById('modal-referral').style.display = 'flex'; }
+function closeReferralModal() { document.getElementById('modal-referral').style.display = 'none'; }
+function openRedeemModal() { document.getElementById('modal-redeem').style.display = 'flex'; }
+function closeRedeemModal() { document.getElementById('modal-redeem').style.display = 'none'; }
+
+document.getElementById('form-referral')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const mobile = document.getElementById('ref-mobile').value;
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/referrals', 'POST', { mobile });
+      closeReferralModal();
+      alert(res.message);
+      loadReferralsNetwork();
+    } catch (err) { alert(err.message); }
+  });
+});
+
+document.getElementById('form-redeem')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const points = parseFloat(document.getElementById('redeem-pts').value);
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest('/api/rewards/redeem', 'POST', { points });
+      closeRedeemModal();
+      alert(res.message);
+      loadRewardsSummary();
+    } catch (err) { alert(err.message); }
+  });
+});
+
+// ADMIN GLOBAL SEARCH
+async function executeAdminSearch() {
+  const q = document.getElementById('admin-search-input').value.trim();
+  if (!q) return;
+
+  const container = document.getElementById('admin-search-results');
+  container.innerHTML = '<div style="color:var(--text-muted);">Searching across ecosystem...</div>';
+
+  try {
+    const res = await apiRequest(`/api/admin/global-search?q=${encodeURIComponent(q)}`);
+    let html = '';
+
+    if (res.batteries.length > 0) {
+      html += '<h4>Battery Traceability Records</h4>';
+      res.batteries.forEach(b => {
+        html += `
+          <div style="background:var(--bg-card); border:1px solid var(--border-color); border-radius:8px; padding:10px; margin-bottom:8px; font-size:0.85rem;">
+            <strong style="color:var(--mech-orange);">${b.battery_code}</strong> - ${b.product_name}<br>
+            Seller: ${b.seller_name} | Customer: ${b.customer_name} | Invoice #: ${b.invoice_number}<br>
+            Warranty Status: <span class="badge badge-active">${b.warranty_status || 'NOT_REGISTERED'}</span>
+          </div>
+        `;
+      });
+    }
+
+    if (res.customers.length > 0) {
+      html += '<h4>Matching Customers</h4>';
+      res.customers.forEach(c => {
+        html += `<div style="font-size:0.85rem; margin-bottom:4px;">👤 <strong>${c.name}</strong> (${c.mobile}) - ${c.partner_name}</div>`;
+      });
+    }
+
+    container.innerHTML = html || '<div style="color:var(--text-muted);">No matching records found.</div>';
+  } catch (err) { container.innerHTML = `<div style="color:red;">${err.message}</div>`; }
+}
+
+// INVOICES & REPORTS LISTING
+async function loadInvoicesList() {
+  const container = document.getElementById('invoices-list-container');
+  container.innerHTML = 'Loading invoices...';
+  try {
+    const list = await apiRequest('/api/invoices');
+    if (list.length === 0) {
+      container.innerHTML = '<div class="card" style="text-align:center; padding:24px;">No invoices recorded yet. Click + New Bill to create your first bill.</div>';
+      return;
+    }
+    container.innerHTML = list.map(inv => `
+      <div class="card" style="margin-bottom:12px; cursor:pointer;" onclick="openInvoicePreviewModal(${inv.id})">
+        <div style="display:flex; justify-content:space-between;">
+          <div>
+            <strong style="color:var(--mech-orange);">${inv.invoice_number}</strong>
+            <div style="font-size:0.85rem;">Customer: ${inv.customer_name}</div>
+            <div style="font-size:0.75rem; color:var(--text-muted);">${inv.invoice_date}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:700;">₹${inv.grand_total}</div>
+            <span class="badge ${inv.payment_status === 'PAID' ? 'badge-active' : 'badge-pending'}">${inv.payment_status}</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch (err) { container.innerHTML = err.message; }
+}
+
+async function loadReportsTree() {
+  const container = document.getElementById('reports-tree-container');
+  container.innerHTML = 'Loading hierarchical reports...';
+  try {
+    const tree = await apiRequest('/api/reports/hierarchical?preset=this_month');
+    if (tree.length === 0) {
+      container.innerHTML = '<div class="card" style="text-align:center; padding:24px;">No sales recorded for this period.</div>';
+      return;
+    }
+    let html = '';
+    tree.forEach(s => {
+      html += `
+        <div class="card" style="margin-bottom:16px;">
+          <h3 style="color:var(--mech-orange); margin-bottom:8px;">Seller: ${s.seller_name} (${s.seller_shop || 'Store'})</h3>
+          <div style="font-size:0.85rem; margin-bottom:12px;">Total Batteries Sold: <strong>${s.total_batteries}</strong> | Total Sales: <strong>₹${s.total_amount}</strong></div>
+          ${s.customers.map(c => `
+            <div style="background:var(--bg-card-elevated); border:1px solid var(--border-color); border-radius:8px; padding:10px; margin-top:8px;">
+              <strong>Customer: ${c.customer_name}</strong> (${c.total_batteries} batteries - ₹${c.total_amount})
+              <div style="margin-top:6px; font-size:0.8rem;">
+                ${c.batteries.map(b => `• ${b.product_name}: ${b.quantity} units (₹${b.total_amount})`).join('<br>')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    });
+    container.innerHTML = html;
+  } catch (err) { container.innerHTML = err.message; }
+}
+
+// CAMERA SCANNER HELPER WITH AUDIO/HAPTIC FEEDBACK (Section 20)
+function startCameraScanner(mode = 'NEW_BILL') {
+  activeScannerMode = mode;
+  document.getElementById('modal-camera').style.display = 'flex';
+
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
+      cameraStream = stream;
+      const video = document.getElementById('camera-video');
+      video.srcObject = stream;
+      video.play();
+
+      triggerAudioBeep();
+    }).catch(err => alert('Camera permission required for QR scanning.'));
+  }
+}
+
+function stopCameraScanner() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  document.getElementById('modal-camera').style.display = 'none';
+}
+
+function openCustomerModal() { document.getElementById('modal-customer').style.display = 'flex'; }
+function closeCustomerModal() { document.getElementById('modal-customer').style.display = 'none'; }
+function openProductModal() { document.getElementById('modal-product').style.display = 'flex'; }
+function closeProductModal() { document.getElementById('modal-product').style.display = 'none'; }
+function openPartnerCreateModal() { openRegisterModal(); }
+function togglePhoneSimulation() {
+  document.body.classList.toggle('phone-simulated');
+  const btn = document.getElementById('btn-phone-preview');
+  if (btn) {
+    if (document.body.classList.contains('phone-simulated')) {
+      btn.innerHTML = '📱 Normal View';
+    } else {
+      btn.innerHTML = '📱 Phone View';
+    }
+  }
+}
+
+document.getElementById('form-customer')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('cust-name').value;
+  const mobile = document.getElementById('cust-mobile').value;
+  const shop_name = document.getElementById('cust-shop').value;
+  const city = document.getElementById('cust-city').value;
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      await apiRequest('/api/customers', 'POST', { name, mobile, shop_name, city });
+      closeCustomerModal();
+      alert('✓ Customer added successfully!');
+      if (document.getElementById('view-new-invoice').style.display !== 'none') {
+        initNewBillWorkflow();
+      } else {
+        loadCustomersList();
+      }
+    } catch (err) { alert(err.message); }
+  });
+});
+
+document.getElementById('form-product')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('prod-name').value;
+  const model_code = document.getElementById('prod-code').value;
+  const selling_price = parseFloat(document.getElementById('prod-price').value);
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      await apiRequest('/api/products', 'POST', { name, model_code, selling_price });
+      closeProductModal();
+      alert('✓ Battery model added successfully!');
+      if (document.getElementById('view-new-invoice').style.display !== 'none') {
+        initNewBillWorkflow();
+      }
+    } catch (err) { alert(err.message); }
+  });
+});
