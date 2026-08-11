@@ -33,6 +33,11 @@
         Approvals <span id="admin-pending-count">[ 0 ]</span>
       </button>
 
+      <!-- Top Bar Header Logout Button -->
+      <button id="header-logout-btn" class="btn btn-secondary btn-sm" onclick="performLogout()" style="display: none; font-weight: 700; color: var(--status-rejected-text); border-color: var(--status-rejected-border);">
+        🚪 Logout
+      </button>
+
       <!-- Menu Button on the Right -->
       <button id="btn-menu-toggle" class="btn btn-secondary btn-sm" onclick="toggleNavDrawer()" style="display: none; font-weight: 700;">
         ☰ Menu
@@ -76,7 +81,7 @@
     </div>
 
     <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border-color);">
-      <button id="btn-logout" class="btn btn-secondary btn-block" style="color: var(--status-rejected-text); font-weight: 700;">
+      <button id="btn-logout" class="btn btn-secondary btn-block" onclick="performLogout()" style="color: var(--status-rejected-text); font-weight: 700;">
         🚪 Sign Out / Logout
       </button>
     </div>
@@ -429,8 +434,21 @@
           <input type="text" id="prof-upi-id" class="form-control" placeholder="Enter your UPI ID">
         </div>
 
+        <div class="form-group">
+          <label class="form-label">Upload Seller Payment QR Code Image *</label>
+          <input type="file" id="prof-upi-qr-input" class="form-control" accept="image/*" onchange="previewUploadedUPIQR(event)">
+          <div id="prof-qr-preview-container" style="margin-top: 10px; text-align: center; display: none;">
+            <img id="prof-qr-preview-img" style="max-width: 180px; max-height: 180px; border-radius: 8px; border: 2px solid var(--mech-orange); padding: 4px; background: #fff;" alt="Seller UPI QR Code">
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Uploaded Payment QR Code</div>
+          </div>
+        </div>
+
         <button class="btn btn-primary btn-block" onclick="saveProfileUPI()">
-          SAVE UPI DETAILS
+          SAVE UPI & QR CODE DETAILS
+        </button>
+
+        <button class="btn btn-secondary btn-block" onclick="performLogout()" style="margin-top: 14px; color: var(--status-rejected-text); font-weight: 700; border-color: var(--status-rejected-border);">
+          🚪 LOG OUT OF PORTAL
         </button>
       </div>
     </section>

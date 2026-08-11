@@ -1562,6 +1562,20 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     conn.commit()
                     return self.send_json({"message": "✓ Customer deleted successfully.", "deleted": True})
 
+            # DELETE / DISABLE PRODUCT (Admin only)
+            elif path.startswith("/api/admin/products/"):
+                if user["role"] != "ADMIN":
+                    return self.send_error_json("Forbidden: Admin access required", 403)
+                
+                prod_id = path.split("/")[-1]
+                prod = cursor.execute("SELECT * FROM products WHERE id = ?", (prod_id,)).fetchone()
+                if not prod:
+                    return self.send_error_json("Product not found.", 404)
+
+                cursor.execute("UPDATE products SET status = 'INACTIVE', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (prod_id,))
+                conn.commit()
+                return self.send_json({"message": f"Product '{prod['name']}' disabled successfully."})
+
             else:
                 return self.send_error_json("Not Found", 404)
         finally:

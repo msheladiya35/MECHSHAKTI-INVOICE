@@ -118,18 +118,31 @@ function initAppStatus() {
   updateOnlineStatus();
 }
 
+function performLogout() {
+  currentToken = null;
+  currentUser = null;
+  localStorage.removeItem('mech_token');
+  localStorage.removeItem('mech_user');
+  const drawer = document.getElementById('nav-drawer');
+  if (drawer) drawer.style.display = 'none';
+  showUnauthenticatedUI();
+}
+
 function showAuthenticatedUI() {
   const userDisp = document.getElementById('user-display');
-  if (userDisp) {
+  if (userDisp && currentUser) {
     userDisp.textContent = `${currentUser.name} (${currentUser.role})`;
   }
   
   const menuBtn = document.getElementById('btn-menu-toggle');
   if (menuBtn) menuBtn.style.display = 'inline-block';
 
+  const headerLogoutBtn = document.getElementById('header-logout-btn');
+  if (headerLogoutBtn) headerLogoutBtn.style.display = 'inline-block';
+
   document.querySelector('.bottom-nav').style.display = 'flex';
 
-  if (currentUser.role === 'ADMIN') {
+  if (currentUser && currentUser.role === 'ADMIN') {
     document.getElementById('drawer-admin-sellers-btn').style.display = 'block';
     document.getElementById('drawer-admin-warranties-btn').style.display = 'block';
     document.getElementById('drawer-admin-search-btn').style.display = 'block';
@@ -143,6 +156,13 @@ function showAuthenticatedUI() {
 function showUnauthenticatedUI() {
   const menuBtn = document.getElementById('btn-menu-toggle');
   if (menuBtn) menuBtn.style.display = 'none';
+
+  const headerLogoutBtn = document.getElementById('header-logout-btn');
+  if (headerLogoutBtn) headerLogoutBtn.style.display = 'none';
+
+  const adminBadge = document.getElementById('admin-pending-badge');
+  if (adminBadge) adminBadge.style.display = 'none';
+
   document.querySelector('.bottom-nav').style.display = 'none';
   showView('view-login');
 }
@@ -257,14 +277,7 @@ document.getElementById('form-login')?.addEventListener('submit', async (e) => {
   });
 });
 
-document.getElementById('btn-logout')?.addEventListener('click', () => {
-  currentToken = null;
-  currentUser = null;
-  localStorage.removeItem('mech_token');
-  localStorage.removeItem('mech_user');
-  toggleNavDrawer();
-  showUnauthenticatedUI();
-});
+document.getElementById('btn-logout')?.addEventListener('click', performLogout);
 
 function openRegisterModal() { document.getElementById('modal-register').style.display = 'flex'; }
 function closeRegisterModal() { document.getElementById('modal-register').style.display = 'none'; }
@@ -467,7 +480,7 @@ async function initNewBillWorkflow() {
     products.forEach(p => {
       const opt = document.createElement('option');
       opt.value = p.id;
-      opt.textContent = `${p.model_code} - ${p.name} (₹${p.selling_price})`;
+      opt.textContent = `${p.model_code} - ${p.name}`;
       prodSelect.appendChild(opt);
     });
   } catch (err) { console.log(err); }

@@ -118,18 +118,31 @@ function initAppStatus() {
   updateOnlineStatus();
 }
 
+function performLogout() {
+  currentToken = null;
+  currentUser = null;
+  localStorage.removeItem('mech_token');
+  localStorage.removeItem('mech_user');
+  const drawer = document.getElementById('nav-drawer');
+  if (drawer) drawer.style.display = 'none';
+  showUnauthenticatedUI();
+}
+
 function showAuthenticatedUI() {
   const userDisp = document.getElementById('user-display');
-  if (userDisp) {
+  if (userDisp && currentUser) {
     userDisp.textContent = `${currentUser.name} (${currentUser.role})`;
   }
   
   const menuBtn = document.getElementById('btn-menu-toggle');
   if (menuBtn) menuBtn.style.display = 'inline-block';
 
+  const headerLogoutBtn = document.getElementById('header-logout-btn');
+  if (headerLogoutBtn) headerLogoutBtn.style.display = 'inline-block';
+
   document.querySelector('.bottom-nav').style.display = 'flex';
 
-  if (currentUser.role === 'ADMIN') {
+  if (currentUser && currentUser.role === 'ADMIN') {
     document.getElementById('drawer-admin-sellers-btn').style.display = 'block';
     document.getElementById('drawer-admin-warranties-btn').style.display = 'block';
     document.getElementById('drawer-admin-search-btn').style.display = 'block';
@@ -143,6 +156,13 @@ function showAuthenticatedUI() {
 function showUnauthenticatedUI() {
   const menuBtn = document.getElementById('btn-menu-toggle');
   if (menuBtn) menuBtn.style.display = 'none';
+
+  const headerLogoutBtn = document.getElementById('header-logout-btn');
+  if (headerLogoutBtn) headerLogoutBtn.style.display = 'none';
+
+  const adminBadge = document.getElementById('admin-pending-badge');
+  if (adminBadge) adminBadge.style.display = 'none';
+
   document.querySelector('.bottom-nav').style.display = 'none';
   showView('view-login');
 }
@@ -257,14 +277,7 @@ document.getElementById('form-login')?.addEventListener('submit', async (e) => {
   });
 });
 
-document.getElementById('btn-logout')?.addEventListener('click', () => {
-  currentToken = null;
-  currentUser = null;
-  localStorage.removeItem('mech_token');
-  localStorage.removeItem('mech_user');
-  toggleNavDrawer();
-  showUnauthenticatedUI();
-});
+document.getElementById('btn-logout')?.addEventListener('click', performLogout);
 
 function openRegisterModal() { document.getElementById('modal-register').style.display = 'flex'; }
 function closeRegisterModal() { document.getElementById('modal-register').style.display = 'none'; }
@@ -467,7 +480,7 @@ async function initNewBillWorkflow() {
     products.forEach(p => {
       const opt = document.createElement('option');
       opt.value = p.id;
-      opt.textContent = `${p.model_code} - ${p.name} (₹${p.selling_price})`;
+      opt.textContent = `${p.model_code} - ${p.name}`;
       prodSelect.appendChild(opt);
     });
   } catch (err) { console.log(err); }
@@ -1237,24 +1250,115 @@ async function loadReportsTree() {
   } catch (err) { container.innerHTML = err.message; }
 }
 
-// CAMERA SCANNER HELPER WITH AUDIO/HAPTIC FEEDBACK (Section 20)
+// CAMERA SCANNER HELPER WITH REAL-TIME DECODING & AUDIO/HAPTIC FEEDBACK (Section 20)
+let scanAnimationId = null;
+
 function startCameraScanner(mode = 'NEW_BILL') {
   activeScannerMode = mode;
   document.getElementById('modal-camera').style.display = 'flex';
 
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
-      cameraStream = stream;
-      const video = document.getElementById('camera-video');
-      video.srcObject = stream;
-      video.play();
+  const statusEl = document.getElementById('camera-scan-status');
+  if (statusEl) {
+    statusEl.style.background = 'var(--bg-card-elevated)';
+    statusEl.style.color = 'var(--mech-orange)';
+    statusEl.textContent = '🔍 Point camera at Mechshakti Battery QR code...';
+  }
 
-      triggerAudioBeep();
-    }).catch(err => alert('Camera permission required for QR scanning.'));
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (statusEl) {
+      statusEl.style.background = 'rgba(239, 68, 68, 0.18)';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = '✕ Camera access not supported by browser. Please type serial code manually.';
+    }
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
+    cameraStream = stream;
+    const video = document.getElementById('camera-video');
+    video.srcObject = stream;
+    video.setAttribute('playsinline', true);
+    video.play();
+
+    scanAnimationId = requestAnimationFrame(scanQRCodeFrame);
+  }).catch(err => {
+    if (statusEl) {
+      statusEl.style.background = 'rgba(239, 68, 68, 0.18)';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = `⚠ Camera Error: ${err.message || 'Permission denied. Please allow camera or type code.'}`;
+    }
+  });
+}
+
+function scanQRCodeFrame() {
+  const video = document.getElementById('camera-video');
+  const canvas = document.getElementById('camera-canvas');
+  if (!video || !canvas || !cameraStream) return;
+
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvas.height = video.videoHeight;
+    canvas.width = video.videoWidth;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    let code = null;
+    if (typeof jsQR !== 'undefined') {
+      const qr = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: 'dontInvert'
+      });
+      if (qr && qr.data) {
+        code = qr.data;
+      }
+    }
+
+    if (code) {
+      onQRCodeSuccessfullyScanned(code);
+      return;
+    }
+  }
+
+  if (cameraStream) {
+    scanAnimationId = requestAnimationFrame(scanQRCodeFrame);
+  }
+}
+
+function onQRCodeSuccessfullyScanned(scannedCode) {
+  triggerAudioBeep();
+
+  const normCode = scannedCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  stopCameraScanner();
+
+  if (activeScannerMode === 'NEW_BILL') {
+    document.getElementById('bill-scanned-card').style.display = 'block';
+    document.getElementById('bill-scanned-code-text').textContent = normCode;
+
+    const prodSelect = document.getElementById('bill-product-select');
+    if (prodSelect) {
+      for (let i = 0; i < prodSelect.options.length; i++) {
+        const text = prodSelect.options[i].text;
+        const prefix = text.split(' - ')[0].trim();
+        if (prefix && normCode.startsWith(prefix)) {
+          prodSelect.selectedIndex = i;
+          onBillProductSelected();
+          break;
+        }
+      }
+    }
+  } else if (activeScannerMode === 'WARRANTY_REG') {
+    const input = document.getElementById('w-reg-code');
+    if (input) {
+      input.value = normCode;
+      validateWarrantySerialBeforeSubmit();
+    }
   }
 }
 
 function stopCameraScanner() {
+  if (scanAnimationId) {
+    cancelAnimationFrame(scanAnimationId);
+    scanAnimationId = null;
+  }
   if (cameraStream) {
     cameraStream.getTracks().forEach(t => t.stop());
     cameraStream = null;
