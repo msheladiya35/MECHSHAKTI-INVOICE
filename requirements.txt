@@ -1,2 +1,2 @@
-# Mechshakti Sales & Invoice Portal
-# Standard Library Python dependencies only (http.server, sqlite3, hmac, hashlib)
+# Mechshakti Sales Invoice Portal Dependencies
+# Uses Python standard libraries (http.server, sqlite3, json, hmac, hashlib)

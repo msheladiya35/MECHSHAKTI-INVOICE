@@ -21,6 +21,18 @@ def get_db():
                     shutil.copy2(DB_FILE, db_path)
                 except Exception:
                     pass
+        elif os.environ.get("RENDER") == "1" or os.path.exists("/var/data"):
+            try:
+                os.makedirs("/var/data", exist_ok=True)
+                db_path = "/var/data/mechshakti.db"
+                if not os.path.exists(db_path) and os.path.exists(DB_FILE):
+                    import shutil
+                    try:
+                        shutil.copy2(DB_FILE, db_path)
+                    except Exception:
+                        pass
+            except Exception:
+                db_path = DB_FILE
         else:
             db_path = DB_FILE
 
