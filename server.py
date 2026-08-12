@@ -11,7 +11,7 @@ import hashlib
 import base64
 import math
 import sqlite3
-from db import get_db, init_db, hash_password
+from db import get_db, init_db, hash_password, DatabaseConnectionError
 
 PORT = int(os.environ.get("PORT", 8080))
 SECRET_KEY = os.environ.get("JWT_SECRET", "mechshakti_super_secret_jwt_key_2026")
@@ -328,7 +328,11 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
         if not payload:
             return None
 
-        conn = get_db()
+        try:
+            conn = get_db()
+        except DatabaseConnectionError:
+            return None
+
         cursor = conn.cursor()
         u = cursor.execute("SELECT id, name, email, role, phone, shop_name, upi_id, upi_qr_url, status FROM users WHERE id = ?", (payload["id"],)).fetchone()
         conn.close()

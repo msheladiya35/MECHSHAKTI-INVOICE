@@ -1,2 +1,2 @@
 # Mechshakti Sales Invoice Portal Dependencies
-# Uses Python standard libraries (http.server, sqlite3, json, hmac, hashlib)
+psycopg2-binary>=2.9.0
