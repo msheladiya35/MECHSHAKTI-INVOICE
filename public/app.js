@@ -78,7 +78,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration error:', err));
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => reg.update())
+      .catch(err => console.log('SW registration error:', err));
   }
 });
 
@@ -150,6 +152,7 @@ function showAuthenticatedUI() {
     if (document.getElementById('drawer-admin-search-btn')) document.getElementById('drawer-admin-search-btn').style.display = 'block';
     if (document.getElementById('drawer-admin-audit-btn')) document.getElementById('drawer-admin-audit-btn').style.display = 'block';
     if (document.getElementById('drawer-admin-backup-btn')) document.getElementById('drawer-admin-backup-btn').style.display = 'block';
+    if (document.getElementById('btn-admin-edit-product')) document.getElementById('btn-admin-edit-product').style.display = 'inline-block';
   } else {
     if (document.getElementById('drawer-admin-sellers-btn')) document.getElementById('drawer-admin-sellers-btn').style.display = 'none';
     if (document.getElementById('drawer-admin-products-btn')) document.getElementById('drawer-admin-products-btn').style.display = 'none';
@@ -157,6 +160,7 @@ function showAuthenticatedUI() {
     if (document.getElementById('drawer-admin-search-btn')) document.getElementById('drawer-admin-search-btn').style.display = 'none';
     if (document.getElementById('drawer-admin-audit-btn')) document.getElementById('drawer-admin-audit-btn').style.display = 'none';
     if (document.getElementById('drawer-admin-backup-btn')) document.getElementById('drawer-admin-backup-btn').style.display = 'none';
+    if (document.getElementById('btn-admin-edit-product')) document.getElementById('btn-admin-edit-product').style.display = 'none';
   }
 }
 
@@ -292,7 +296,19 @@ document.getElementById('form-login')?.addEventListener('submit', async (e) => {
 
 document.getElementById('btn-logout')?.addEventListener('click', performLogout);
 
-function openRegisterModal() { document.getElementById('modal-register').style.display = 'flex'; }
+function openRegisterModal() { 
+  document.getElementById('modal-register').style.display = 'flex'; 
+  try {
+    const hash = window.location.hash;
+    const query = hash.includes('?') ? hash.split('?')[1] : window.location.search;
+    const urlParams = new URLSearchParams(query);
+    const refParam = urlParams.get('ref');
+    if (refParam) {
+      const input = document.getElementById('reg-referral-code');
+      if (input) input.value = refParam;
+    }
+  } catch (e) {}
+}
 function closeRegisterModal() { document.getElementById('modal-register').style.display = 'none'; }
 
 document.getElementById('form-register')?.addEventListener('submit', async (e) => {
@@ -304,12 +320,13 @@ document.getElementById('form-register')?.addEventListener('submit', async (e) =
   const confirm_password = document.getElementById('reg-confirm-password').value;
   const shop_name = document.getElementById('reg-shop').value;
   const city = document.getElementById('reg-city').value;
+  const referral_code = document.getElementById('reg-referral-code')?.value || '';
   const btn = e.target.querySelector('button[type="submit"]');
 
   await withLoadingState(btn, async () => {
     try {
       const res = await apiRequest('/api/auth/register', 'POST', {
-        name, mobile, email, password, confirm_password, shop_name, city
+        name, mobile, email, password, confirm_password, shop_name, city, referral_code
       });
       closeRegisterModal();
       alert(`Registration Submitted!\n${res.sub_message}`);
@@ -1275,20 +1292,89 @@ async function loadRewardsSummary() {
   } catch (err) { console.log(err); }
 }
 
+let currentReferralCode = '';
+
 async function loadReferralsNetwork() {
   try {
     const data = await apiRequest('/api/referrals/network');
+    currentReferralCode = data.referral_code || 'MS-REF-PORTAL';
+    const codeEl = document.getElementById('reward-my-ref-code');
+    if (codeEl) codeEl.textContent = currentReferralCode;
+
     const container = document.getElementById('referrals-network-tree');
-    if (data.referrals.length === 0) {
-      container.innerHTML = '<div style="font-size:0.85rem; color:var(--text-muted);">No referred partners linked yet. Tap "+ Refer Person" to build your network!</div>';
+    if (!container) return;
+
+    const l1 = data.level1_referrals || [];
+    const l2 = data.level2_referrals || [];
+
+    if (l1.length === 0 && l2.length === 0) {
+      container.innerHTML = `
+        <div style="font-size:0.85rem; color:var(--text-muted); background:var(--bg-card-elevated); padding:14px; border-radius:8px; text-align:center;">
+          No referred partners linked yet.<br>
+          Tap <strong>💬 Share on WhatsApp</strong> above to invite mechanics & garages to join your network and earn 50 Points (₹50) per battery sold!
+        </div>`;
       return;
     }
-    container.innerHTML = data.referrals.map(r => `
-      <div style="background:var(--bg-card); border-left:3px solid var(--mech-orange); padding:8px 12px; margin-bottom:6px; font-size:0.85rem;">
-        <strong>${r.name}</strong> (${r.shop_name || 'Garage'}) - ${r.city}
-      </div>
-    `).join('');
+
+    let html = '';
+
+    // Level 1 Direct Referrals Section
+    html += `<div style="font-size:0.9rem; font-weight:700; color:var(--mech-orange); margin-bottom:8px;">🥇 Direct Level 1 Referrals (${l1.length} Partners)</div>`;
+    if (l1.length === 0) {
+      html += `<div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">No direct referrals yet.</div>`;
+    } else {
+      html += l1.map(r => `
+        <div style="background:var(--bg-card); border-left:4px solid var(--mech-orange); border-radius:8px; padding:12px; margin-bottom:8px; box-shadow:var(--shadow-sm);">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <strong style="font-size:0.95rem; color:var(--text-main);">${escapeHtml(r.name)}</strong>
+              <div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(r.shop_name || 'Garage')} | 📱 ${r.phone} | 📍 ${escapeHtml(r.city || '-')}</div>
+            </div>
+            <span class="badge ${r.status === 'ACTIVE' ? 'badge-active' : 'badge-pending'}">${r.status}</span>
+          </div>
+          <div style="margin-top:8px; padding-top:6px; border-top:1px dashed var(--border-color); display:flex; justify-content:space-between; font-size:0.8rem;">
+            <span>🔋 Batteries Sold: <strong>${r.total_batteries_sold} units</strong> (₹${r.total_sales_amount.toLocaleString()})</span>
+            <span style="color:var(--status-active-text); font-weight:700;">Earned for you: +${r.points_earned_for_you} pts</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Level 2 Indirect Referrals Section
+    if (l2.length > 0) {
+      html += `<div style="font-size:0.9rem; font-weight:700; color:var(--text-muted); margin-top:16px; margin-bottom:8px;">🥈 2nd-Tier Level 2 Referrals (${l2.length} Partners)</div>`;
+      html += l2.map(r => `
+        <div style="background:var(--bg-card); border-left:4px solid var(--text-muted); border-radius:8px; padding:10px; margin-bottom:6px; font-size:0.82rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <strong>${escapeHtml(r.name)}</strong> (${escapeHtml(r.shop_name || 'Garage')}) - ${escapeHtml(r.city || '-')}
+              <div style="color:var(--text-muted); font-size:0.75rem;">Referred by Level 1 Partner: <strong>${escapeHtml(r.referrer_name)}</strong></div>
+            </div>
+            <span style="color:var(--status-active-text); font-weight:700;">+${r.points_earned_for_you} pts</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    container.innerHTML = html;
   } catch (err) { console.log(err); }
+}
+
+function shareReferralWhatsApp() {
+  const code = currentReferralCode || 'MS-REF-PORTAL';
+  const url = `${window.location.origin}/#register?ref=${code}`;
+  const text = `⚡ Join Mechshakti Battery Partner Portal!\n\nSell batteries, register digital warranties, track khatabook, and earn referral reward points on every battery sold!\n\nRegister your Mechshakti Partner Account here:\n👉 ${url}\n\nUse Referral Code: *${code}*`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+}
+
+function copyReferralLink() {
+  const code = currentReferralCode || 'MS-REF-PORTAL';
+  const url = `${window.location.origin}/#register?ref=${code}`;
+  navigator.clipboard.writeText(url).then(() => {
+    alert('✔ Referral link copied to clipboard!\nShare this link with mechanics & garages to earn points.');
+  }).catch(() => {
+    alert(`Your referral code is: ${code}`);
+  });
 }
 
 function openReferralModal() { document.getElementById('modal-referral').style.display = 'flex'; }
@@ -1576,6 +1662,8 @@ document.getElementById('form-customer')?.addEventListener('submit', async (e) =
   });
 });
 
+window.allProductsMap = window.allProductsMap || {};
+
 async function loadAdminMasterProducts() {
   const searchQ = document.getElementById('admin-prod-search')?.value.trim() || '';
   const statusF = document.getElementById('admin-prod-status-filter')?.value || 'ALL';
@@ -1592,6 +1680,8 @@ async function loadAdminMasterProducts() {
       container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">No products found matching filters.</div>';
       return;
     }
+
+    products.forEach(p => { window.allProductsMap[p.id] = p; });
 
     const rows = products.map((p) => `
       <tr>
@@ -1612,7 +1702,7 @@ async function loadAdminMasterProducts() {
         </td>
         <td>
           <div style="display:flex; gap:4px;">
-            <button class="btn btn-secondary btn-sm" onclick="openEditProductModal('${p.id}', '${p.name.replace(/'/g, "\\'")}', '${p.model_code.replace(/'/g, "\\'")}', '${p.category || 'BATTERY'}', ${p.mrp || 0}, ${p.selling_price}, ${p.warranty_months || 24}, ${p.battery_serial_required ? 1 : 0}, '${p.status || 'ACTIVE'}')">✏️ Edit</button>
+            <button class="btn btn-secondary btn-sm" onclick="openEditProductModalById(${p.id})">✏️ Edit</button>
             <button class="btn ${p.status === 'ACTIVE' ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="toggleProductStatus('${p.id}', '${p.status || 'ACTIVE'}')">
               ${p.status === 'ACTIVE' ? '🚫 Deactivate' : '🟢 Activate'}
             </button>
@@ -1685,6 +1775,27 @@ document.getElementById('form-product')?.addEventListener('submit', async (e) =>
     } catch (err) { alert(err.message); }
   });
 });
+
+async function openEditProductModalById(prodId) {
+  if (!prodId) return alert('Please select a product to edit.');
+  let p = window.allProductsMap[prodId];
+  if (!p) {
+    try {
+      const products = await apiRequest('/api/admin/products?status=ALL');
+      (products || []).forEach(item => { window.allProductsMap[item.id] = item; });
+      p = window.allProductsMap[prodId];
+    } catch (err) { console.log(err); }
+  }
+
+  if (!p) return alert('Product details not found.');
+  openEditProductModal(p.id, p.name, p.model_code, p.category, p.mrp, p.selling_price, p.warranty_months, p.battery_serial_required, p.status);
+}
+
+function openSelectedBillProductEdit() {
+  const prodId = document.getElementById('bill-product-select')?.value;
+  if (!prodId) return alert('Please select a product from the dropdown list first.');
+  openEditProductModalById(prodId);
+}
 
 function openEditProductModal(id, name, code, category, mrp, price, warranty, serialReq, status) {
   document.getElementById('edit-prod-id').value = id;

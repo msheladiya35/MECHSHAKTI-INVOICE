@@ -247,20 +247,26 @@ def calculate_and_award_referral_points(conn, partner_id, invoice_id, items):
     if not upline_chain:
         return
 
+    level_points_map = {1: 50.0, 2: 20.0, 3: 10.0}
+
+    seller_row = cursor.execute("SELECT name, shop_name FROM users WHERE id = ?", (partner_id,)).fetchone()
+    seller_name = seller_row["name"] if seller_row else f"Partner #{partner_id}"
+    seller_shop = f" ({seller_row['shop_name']})" if seller_row and seller_row["shop_name"] else ""
+
     for item in items:
         prod_id = item["product_id"]
         battery_code = item.get("battery_code")
         qty = item.get("quantity", 1)
 
+        prod_row = cursor.execute("SELECT name, model_code FROM products WHERE id = ?", (prod_id,)).fetchone()
+        prod_name = prod_row["name"] if prod_row else "Battery"
+
         for b_idx in range(qty):
             b_code = battery_code if (qty == 1 and battery_code) else (f"{battery_code}_{b_idx}" if battery_code else f"INV_{invoice_id}_PROD_{prod_id}_{b_idx}")
             
             current_level = 1
-            current_points = 1.00
-
             for beneficiary_id in upline_chain:
-                if current_points < 0.01:
-                    break
+                pts = level_points_map.get(current_level, 5.0)
 
                 try:
                     cursor.execute("""
@@ -273,14 +279,13 @@ def calculate_and_award_referral_points(conn, partner_id, invoice_id, items):
                         b_code,
                         prod_id,
                         current_level,
-                        round(current_points, 6),
-                        f"Level {current_level} referral reward for invoice #{invoice_id}"
+                        pts,
+                        f"Level {current_level} Reward: {seller_name}{seller_shop} sold {prod_name} (Invoice #{invoice_id})"
                     ))
                 except sqlite3.IntegrityError:
                     pass
 
                 current_level += 1
-                current_points = current_points / 2.0
 
 
 def log_audit_entry(conn, actor_user_id, action_type, target_entity, target_id=None, old_value=None, new_value=None, reason=None, ip_address=None):
@@ -332,6 +337,14 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
             return None
 
         return dict(u)
+
+    def end_headers(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if not parsed.path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+        super().end_headers()
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -597,14 +610,46 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                 elif path == "/api/referrals/network":
                     partner_id = user["id"]
-                    downlines = cursor.execute("""
-                        SELECT u.id, u.name, u.shop_name, u.city, r.created_at
+                    me = cursor.execute("SELECT phone, dealer_code FROM users WHERE id = ?", (partner_id,)).fetchone()
+                    ref_code = f"MS-REF-{me['phone']}" if (me and me['phone']) else f"MS-REF-{partner_id}"
+
+                    l1_rows = cursor.execute("""
+                        SELECT u.id, u.name, u.shop_name, u.phone, u.city, u.status, r.created_at as joined_date,
+                               COALESCE((SELECT SUM(ii.quantity) FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id WHERE i.partner_id = u.id AND i.payment_status != 'CANCELLED'), 0) as total_batteries_sold,
+                               COALESCE((SELECT SUM(i.grand_total) FROM invoices i WHERE i.partner_id = u.id AND i.payment_status != 'CANCELLED'), 0.0) as total_sales_amount,
+                               COALESCE((SELECT SUM(rt.points_earned) FROM reward_transactions rt WHERE rt.beneficiary_partner_id = ? AND rt.source_invoice_id IN (SELECT id FROM invoices WHERE partner_id = u.id)), 0.0) as points_earned_for_you
                         FROM referrals r
                         JOIN users u ON u.id = r.referred_partner_id
                         WHERE r.referrer_partner_id = ?
-                    """, (partner_id,)).fetchall()
+                        ORDER BY r.id DESC
+                    """, (partner_id, partner_id)).fetchall()
 
-                    return self.send_json({"referrals": [dict(d) for d in downlines]})
+                    l2_rows = cursor.execute("""
+                        SELECT u2.id, u2.name, u2.shop_name, u2.phone, u2.city, u2.status, r2.created_at as joined_date,
+                               u1.name as referrer_name, u1.shop_name as referrer_shop,
+                               COALESCE((SELECT SUM(ii.quantity) FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id WHERE i.partner_id = u2.id AND i.payment_status != 'CANCELLED'), 0) as total_batteries_sold,
+                               COALESCE((SELECT SUM(i.grand_total) FROM invoices i WHERE i.partner_id = u2.id AND i.payment_status != 'CANCELLED'), 0.0) as total_sales_amount,
+                               COALESCE((SELECT SUM(rt.points_earned) FROM reward_transactions rt WHERE rt.beneficiary_partner_id = ? AND rt.source_invoice_id IN (SELECT id FROM invoices WHERE partner_id = u2.id)), 0.0) as points_earned_for_you
+                        FROM referrals r1
+                        JOIN referrals r2 ON r2.referrer_partner_id = r1.referred_partner_id
+                        JOIN users u1 ON u1.id = r1.referred_partner_id
+                        JOIN users u2 ON u2.id = r2.referred_partner_id
+                        WHERE r1.referrer_partner_id = ?
+                        ORDER BY r2.id DESC
+                    """, (partner_id, partner_id)).fetchall()
+
+                    l1_list = [dict(r) for r in l1_rows]
+                    l2_list = [dict(r) for r in l2_rows]
+
+                    return self.send_json({
+                        "referral_code": ref_code,
+                        "referrer_phone": me["phone"] if me else "",
+                        "level1_referrals": l1_list,
+                        "level2_referrals": l2_list,
+                        "total_network_count": len(l1_list) + len(l2_list),
+                        "level1_count": len(l1_list),
+                        "level2_count": len(l2_list)
+                    })
 
                 # CUSTOMER KHATABOOK LEDGER STATEMENT
                 elif path.startswith("/api/customers/") and path.endswith("/ledger"):
@@ -1066,12 +1111,32 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 conn.close()
                 return self.send_error_json("An account with this mobile number already exists.", 400)
 
+            referral_code = body.get("referral_code", "").strip()
+
             cursor.execute("""
                 INSERT INTO users (name, email, password_hash, role, phone, shop_name, city, address, gst_number, dealer_code, status)
                 VALUES (?, ?, ?, 'PARTNER', ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL')
             """, (name, email, hash_password(password), mobile, shop_name, city, address, gst_number, dealer_code))
             conn.commit()
             new_id = cursor.lastrowid
+
+            if referral_code:
+                clean_ref = referral_code.replace("MS-REF-", "").strip()
+                referrer = cursor.execute("""
+                    SELECT id FROM users 
+                    WHERE phone = ? OR dealer_code = ? OR email = ?
+                """, (clean_ref, clean_ref, clean_ref.lower())).fetchone()
+
+                if referrer and referrer["id"] != new_id:
+                    try:
+                        cursor.execute("""
+                            INSERT INTO referrals (referrer_partner_id, referred_partner_id, referral_code, status)
+                            VALUES (?, ?, ?, 'ACTIVE')
+                        """, (referrer["id"], new_id, referral_code))
+                        conn.commit()
+                    except sqlite3.IntegrityError:
+                        pass
+
             conn.close()
 
             return self.send_json({

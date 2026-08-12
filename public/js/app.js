@@ -78,7 +78,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration error:', err));
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => reg.update())
+      .catch(err => console.log('SW registration error:', err));
   }
 });
 
@@ -150,6 +152,7 @@ function showAuthenticatedUI() {
     if (document.getElementById('drawer-admin-search-btn')) document.getElementById('drawer-admin-search-btn').style.display = 'block';
     if (document.getElementById('drawer-admin-audit-btn')) document.getElementById('drawer-admin-audit-btn').style.display = 'block';
     if (document.getElementById('drawer-admin-backup-btn')) document.getElementById('drawer-admin-backup-btn').style.display = 'block';
+    if (document.getElementById('btn-admin-edit-product')) document.getElementById('btn-admin-edit-product').style.display = 'inline-block';
   } else {
     if (document.getElementById('drawer-admin-sellers-btn')) document.getElementById('drawer-admin-sellers-btn').style.display = 'none';
     if (document.getElementById('drawer-admin-products-btn')) document.getElementById('drawer-admin-products-btn').style.display = 'none';
@@ -157,6 +160,7 @@ function showAuthenticatedUI() {
     if (document.getElementById('drawer-admin-search-btn')) document.getElementById('drawer-admin-search-btn').style.display = 'none';
     if (document.getElementById('drawer-admin-audit-btn')) document.getElementById('drawer-admin-audit-btn').style.display = 'none';
     if (document.getElementById('drawer-admin-backup-btn')) document.getElementById('drawer-admin-backup-btn').style.display = 'none';
+    if (document.getElementById('btn-admin-edit-product')) document.getElementById('btn-admin-edit-product').style.display = 'none';
   }
 }
 
@@ -1576,6 +1580,8 @@ document.getElementById('form-customer')?.addEventListener('submit', async (e) =
   });
 });
 
+window.allProductsMap = window.allProductsMap || {};
+
 async function loadAdminMasterProducts() {
   const searchQ = document.getElementById('admin-prod-search')?.value.trim() || '';
   const statusF = document.getElementById('admin-prod-status-filter')?.value || 'ALL';
@@ -1592,6 +1598,8 @@ async function loadAdminMasterProducts() {
       container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">No products found matching filters.</div>';
       return;
     }
+
+    products.forEach(p => { window.allProductsMap[p.id] = p; });
 
     const rows = products.map((p) => `
       <tr>
@@ -1612,7 +1620,7 @@ async function loadAdminMasterProducts() {
         </td>
         <td>
           <div style="display:flex; gap:4px;">
-            <button class="btn btn-secondary btn-sm" onclick="openEditProductModal('${p.id}', '${p.name.replace(/'/g, "\\'")}', '${p.model_code.replace(/'/g, "\\'")}', '${p.category || 'BATTERY'}', ${p.mrp || 0}, ${p.selling_price}, ${p.warranty_months || 24}, ${p.battery_serial_required ? 1 : 0}, '${p.status || 'ACTIVE'}')">✏️ Edit</button>
+            <button class="btn btn-secondary btn-sm" onclick="openEditProductModalById(${p.id})">✏️ Edit</button>
             <button class="btn ${p.status === 'ACTIVE' ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="toggleProductStatus('${p.id}', '${p.status || 'ACTIVE'}')">
               ${p.status === 'ACTIVE' ? '🚫 Deactivate' : '🟢 Activate'}
             </button>
@@ -1685,6 +1693,27 @@ document.getElementById('form-product')?.addEventListener('submit', async (e) =>
     } catch (err) { alert(err.message); }
   });
 });
+
+async function openEditProductModalById(prodId) {
+  if (!prodId) return alert('Please select a product to edit.');
+  let p = window.allProductsMap[prodId];
+  if (!p) {
+    try {
+      const products = await apiRequest('/api/admin/products?status=ALL');
+      (products || []).forEach(item => { window.allProductsMap[item.id] = item; });
+      p = window.allProductsMap[prodId];
+    } catch (err) { console.log(err); }
+  }
+
+  if (!p) return alert('Product details not found.');
+  openEditProductModal(p.id, p.name, p.model_code, p.category, p.mrp, p.selling_price, p.warranty_months, p.battery_serial_required, p.status);
+}
+
+function openSelectedBillProductEdit() {
+  const prodId = document.getElementById('bill-product-select')?.value;
+  if (!prodId) return alert('Please select a product from the dropdown list first.');
+  openEditProductModalById(prodId);
+}
 
 function openEditProductModal(id, name, code, category, mrp, price, warranty, serialReq, status) {
   document.getElementById('edit-prod-id').value = id;
