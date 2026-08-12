@@ -12,11 +12,11 @@ const ExportUtil = {
         <td style="padding:10px; border:1px solid #cbd5e1;">
           <strong>${item.product_name_snapshot}</strong><br>
           <small style="color:#64748b;">Code: ${item.model_code_snapshot}</small>
+          ${item.battery_code ? `<br><small style="color:#f97316; font-family:monospace;">Serial: ${item.battery_code}</small>` : ''}
         </td>
         <td style="padding:10px; border:1px solid #cbd5e1; text-align:center;">${item.quantity}</td>
         <td style="padding:10px; border:1px solid #cbd5e1; text-align:right;">₹${item.unit_price.toFixed(2)}</td>
-        <td style="padding:10px; border:1px solid #cbd5e1; text-align:right;">₹${item.discount.toFixed(2)}</td>
-        <td style="padding:10px; border:1px solid #cbd5e1; text-align:right;">${item.gst_rate}%</td>
+        <td style="padding:10px; border:1px solid #cbd5e1; text-align:right;">₹${(item.discount || 0).toFixed(2)}</td>
         <td style="padding:10px; border:1px solid #cbd5e1; text-align:right;">₹${item.line_total.toFixed(2)}</td>
       </tr>
     `).join('');
@@ -25,12 +25,12 @@ const ExportUtil = {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Invoice - ${invoiceData.invoice_number}</title>
+        <title>Sales Bill - ${invoiceData.invoice_number}</title>
         <style>
           body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 24px; }
           .header-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
           .brand-title { font-size: 24px; font-weight: bold; color: #1e3a8a; }
-          .invoice-title { font-size: 28px; font-weight: bold; color: #3b82f6; text-align: right; }
+          .invoice-title { font-size: 24px; font-weight: bold; color: #f97316; text-align: right; }
           .details-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
           .details-table td { width: 50%; vertical-align: top; padding: 8px; border: 1px solid #e2e8f0; background: #f8fafc; }
           .items-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
@@ -50,7 +50,7 @@ const ExportUtil = {
               <div style="font-size:12px; color:#64748b;">Phone: ${invoiceData.seller_phone || 'N/A'}</div>
             </td>
             <td style="text-align:right;">
-              <div class="invoice-title">TAX INVOICE</div>
+              <div class="invoice-title">SALES BILL / CASH MEMO</div>
               <div style="font-weight:bold; font-size:14px;"># ${invoiceData.invoice_number}</div>
               <div style="font-size:12px; color:#64748b;">Date: ${invoiceData.invoice_date}</div>
             </td>
@@ -64,8 +64,7 @@ const ExportUtil = {
               <strong>${invoiceData.customer_name}</strong><br>
               ${invoiceData.customer_shop ? invoiceData.customer_shop + '<br>' : ''}
               Mobile: ${invoiceData.customer_mobile}<br>
-              ${invoiceData.customer_address ? invoiceData.customer_address + ', ' : ''} ${invoiceData.customer_city || ''}<br>
-              ${invoiceData.customer_gst ? 'GSTIN: ' + invoiceData.customer_gst : ''}
+              ${invoiceData.customer_address ? invoiceData.customer_address + ', ' : ''} ${invoiceData.customer_city || ''}
             </td>
             <td>
               <strong style="color:#1e3a8a;">ISSUED BY</strong><br>
@@ -84,7 +83,6 @@ const ExportUtil = {
               <th>Qty</th>
               <th>Unit Price</th>
               <th>Discount</th>
-              <th>GST %</th>
               <th>Total Amount</th>
             </tr>
           </thead>
@@ -95,26 +93,26 @@ const ExportUtil = {
 
         <table class="totals-table">
           <tr>
-            <td>Taxable Amount:</td>
-            <td style="text-align:right;">₹${invoiceData.taxable_amount.toFixed(2)}</td>
-          </tr>
-          <tr>
             <td>Total Discount:</td>
-            <td style="text-align:right;">₹${invoiceData.discount_amount.toFixed(2)}</td>
-          </tr>
-          <tr>
-            <td>GST Amount:</td>
-            <td style="text-align:right;">₹${invoiceData.gst_amount.toFixed(2)}</td>
+            <td style="text-align:right;">₹${(invoiceData.discount_amount || 0).toFixed(2)}</td>
           </tr>
           <tr class="grand-total">
             <td>Grand Total:</td>
             <td style="text-align:right;">₹${invoiceData.grand_total.toFixed(2)}</td>
           </tr>
+          <tr>
+            <td>Paid Amount:</td>
+            <td style="text-align:right; color:green; font-weight:bold;">₹${(invoiceData.paid_amount || 0).toFixed(2)}</td>
+          </tr>
+          <tr>
+            <td>Balance Outstanding:</td>
+            <td style="text-align:right; color:red; font-weight:bold;">₹${(invoiceData.outstanding || (invoiceData.grand_total - (invoiceData.paid_amount || 0))).toFixed(2)}</td>
+          </tr>
         </table>
 
         <div class="footer">
           Thank you for your business! Mechshakti Batteries - Maximum Power & Unmatched Warranty.<br>
-          This is a computer-generated tax invoice created via Mechshakti Partner Portal.
+          This is a computer-generated sales bill created via Mechshakti Partner Portal.
         </div>
 
         <script>

@@ -142,14 +142,18 @@ function showAuthenticatedUI() {
 
   document.querySelector('.bottom-nav').style.display = 'flex';
 
-  if (currentUser && currentUser.role === 'ADMIN') {
-    document.getElementById('drawer-admin-sellers-btn').style.display = 'block';
-    document.getElementById('drawer-admin-warranties-btn').style.display = 'block';
-    document.getElementById('drawer-admin-search-btn').style.display = 'block';
+  if (currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN')) {
+    if (document.getElementById('drawer-admin-sellers-btn')) document.getElementById('drawer-admin-sellers-btn').style.display = 'block';
+    if (document.getElementById('drawer-admin-warranties-btn')) document.getElementById('drawer-admin-warranties-btn').style.display = 'block';
+    if (document.getElementById('drawer-admin-search-btn')) document.getElementById('drawer-admin-search-btn').style.display = 'block';
+    if (document.getElementById('drawer-admin-audit-btn')) document.getElementById('drawer-admin-audit-btn').style.display = 'block';
+    if (document.getElementById('drawer-admin-backup-btn')) document.getElementById('drawer-admin-backup-btn').style.display = 'block';
   } else {
-    document.getElementById('drawer-admin-sellers-btn').style.display = 'none';
-    document.getElementById('drawer-admin-warranties-btn').style.display = 'none';
-    document.getElementById('drawer-admin-search-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-sellers-btn')) document.getElementById('drawer-admin-sellers-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-warranties-btn')) document.getElementById('drawer-admin-warranties-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-search-btn')) document.getElementById('drawer-admin-search-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-audit-btn')) document.getElementById('drawer-admin-audit-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-backup-btn')) document.getElementById('drawer-admin-backup-btn').style.display = 'none';
   }
 }
 
@@ -222,6 +226,9 @@ function switchTab(tabId) {
     loadAdminWarrantiesQueue();
   } else if (tabId === 'admin-search') {
     showView('view-admin-search');
+  } else if (tabId === 'admin-audit') {
+    showView('view-admin-audit');
+    loadAdminAuditLogs();
   }
 }
 
@@ -534,7 +541,6 @@ document.getElementById('form-other-product')?.addEventListener('submit', async 
 
       const p = res.product;
       const line_base = (p.selling_price * qty);
-      const line_gst = line_base * (p.gst_rate / 100.0);
       
       const item = {
         product_id: p.id,
@@ -543,8 +549,8 @@ document.getElementById('form-other-product')?.addEventListener('submit', async 
         quantity: qty,
         battery_code: null,
         discount: 0,
-        gst_rate: p.gst_rate,
-        total: line_base + line_gst
+        gst_rate: 0,
+        total: line_base
       };
 
       currentInvoiceDraft.items.push(item);
@@ -572,8 +578,8 @@ function addBillItem() {
     quantity: qty,
     battery_code: scannedText || null,
     discount: 0,
-    gst_rate: 18.0,
-    total: rate * qty * 1.18
+    gst_rate: 0,
+    total: rate * qty
   };
 
   currentInvoiceDraft.items.push(item);
@@ -697,7 +703,7 @@ async function openInvoicePreviewModal(invId) {
             <div style="font-size:0.8rem; color:var(--text-muted);">Phone: ${inv.seller_phone || ''}</div>
           </div>
           <div style="text-align:right;">
-            <strong style="font-size:1.1rem;">TAX INVOICE</strong>
+            <strong style="font-size:1.1rem;">SALES BILL / CASH MEMO</strong>
             <div style="font-family:monospace; font-weight:700; color:var(--mech-orange);">${inv.invoice_number}</div>
             <div style="font-size:0.8rem; color:var(--text-muted);">${inv.invoice_date}</div>
           </div>
@@ -759,7 +765,7 @@ function shareInvoiceWhatsApp() {
   const items = activePreviewInvoice.items || [];
   const itemsSummary = items.map(it => `• ${it.product_name_snapshot} x${it.quantity} (₹${it.line_total})`).join('\n');
 
-  const text = `⚡ *MECHSHAKTI TAX INVOICE*\n` +
+  const text = `⚡ *MECHSHAKTI SALES BILL*\n` +
     `🧾 *Invoice #*: ${inv.invoice_number}\n` +
     `📅 *Date*: ${inv.invoice_date}\n` +
     `👤 *Customer*: ${inv.customer_name} (${inv.customer_shop || 'Individual'})\n` +
@@ -1612,6 +1618,105 @@ document.getElementById('form-edit-partner-profile')?.addEventListener('submit',
       closeEditPartnerModal();
       alert('✓ Partner profile updated by Admin!');
       loadAdminSellersList();
+    } catch (err) { alert(err.message); }
+  });
+});
+
+// ADMIN AUDIT LOGS & DATABASE BACKUP FUNCTIONS (Phase 0.2 & 0.3)
+async function loadAdminAuditLogs() {
+  const container = document.getElementById('admin-audit-logs-container');
+  if (!container) return;
+
+  const q = document.getElementById('audit-log-search-input')?.value.trim() || '';
+  try {
+    const logs = await apiRequest(`/api/admin/audit-logs?q=${encodeURIComponent(q)}`);
+    if (!logs || logs.length === 0) {
+      container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">No audit log entries found.</div>';
+      return;
+    }
+
+    let html = `
+      <table class="table" style="font-size:0.82rem;">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Timestamp</th>
+            <th>Actor</th>
+            <th>Action</th>
+            <th>Target</th>
+            <th>Reason / Details</th>
+            <th>IP Address</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    logs.forEach(l => {
+      html += `
+        <tr>
+          <td>#${l.id}</td>
+          <td><small style="color:var(--text-muted);">${l.created_at}</small></td>
+          <td><strong>${l.actor_name || 'System'}</strong><br><small>${l.actor_email || ''}</small></td>
+          <td><span class="badge badge-${l.action_type.includes('CANCEL') || l.action_type.includes('DENIED') ? 'rejected' : 'active'}">${l.action_type}</span></td>
+          <td>${l.target_entity} ${l.target_id ? `#${l.target_id}` : ''}</td>
+          <td>${l.reason || l.new_value || '-'}</td>
+          <td><code>${l.ip_address || 'local'}</code></td>
+        </tr>
+      `;
+    });
+
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<div style="color:red; text-align:center; padding:12px;">${err.message}</div>`;
+  }
+}
+
+async function downloadDatabaseBackup() {
+  try {
+    const res = await apiRequest('/api/admin/export-database');
+    const jsonStr = JSON.stringify(res, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mechshakti_db_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    alert('✓ Full Database Backup (.json) downloaded securely!');
+  } catch (err) {
+    alert('Backup Export Failed: ' + err.message);
+  }
+}
+
+// INVOICE CANCELLATION HANDLERS (Phase 1.2)
+function openCancelInvoiceModal(invId) {
+  document.getElementById('cancel-invoice-id').value = invId;
+  document.getElementById('cancel-invoice-reason').value = '';
+  document.getElementById('modal-cancel-invoice').style.display = 'flex';
+}
+
+function closeCancelInvoiceModal() {
+  document.getElementById('modal-cancel-invoice').style.display = 'none';
+}
+
+document.getElementById('form-cancel-invoice')?.addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const invId = document.getElementById('cancel-invoice-id').value;
+  const reason = document.getElementById('cancel-invoice-reason').value.trim();
+  if (!reason) return alert('Please enter a cancellation reason.');
+
+  const btn = e.target.querySelector('button[type="submit"]');
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest(`/api/invoices/${invId}/cancel`, 'POST', { reason });
+      closeCancelInvoiceModal();
+      closeInvoicePreviewModal();
+      alert(res.message);
+      loadInvoicesList();
+      if (typeof loadDashboardStats === 'function') loadDashboardStats();
     } catch (err) { alert(err.message); }
   });
 });
