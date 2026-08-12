@@ -1,2 +1,3 @@
 # Mechshakti Sales Invoice Portal Dependencies
-psycopg2-binary>=2.9.0
+# Supports both local SQLite and Supabase PostgreSQL Database via DATABASE_URL
+psycopg2-binary>=2.9.9
