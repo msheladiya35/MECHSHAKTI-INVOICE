@@ -38,14 +38,14 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
 
-    # 1. Users table (Admin / Partner with PENDING_APPROVAL, ACTIVE, REJECTED, SUSPENDED statuses)
+    # 1. Users table (Super Admin / Admin / Partner with PENDING_APPROVAL, ACTIVE, REJECTED, SUSPENDED statuses)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
-        role TEXT CHECK(role IN ('ADMIN', 'PARTNER')) NOT NULL,
+        role TEXT CHECK(role IN ('SUPER_ADMIN', 'ADMIN', 'PARTNER')) NOT NULL,
         phone TEXT,
         shop_name TEXT,
         city TEXT,
@@ -138,9 +138,15 @@ def init_db():
         taxable_amount REAL NOT NULL,
         discount_amount REAL DEFAULT 0.0,
         gst_amount REAL NOT NULL,
+        cgst_amount REAL DEFAULT 0.0,
+        sgst_amount REAL DEFAULT 0.0,
+        igst_amount REAL DEFAULT 0.0,
         grand_total REAL NOT NULL,
         paid_amount REAL DEFAULT 0.0,
-        payment_status TEXT CHECK(payment_status IN ('PAID', 'PARTIALLY_PAID', 'UNPAID')) DEFAULT 'UNPAID',
+        payment_status TEXT DEFAULT 'UNPAID',
+        cancellation_reason TEXT,
+        cancelled_by INTEGER,
+        cancelled_at DATETIME,
         notes TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -148,6 +154,20 @@ def init_db():
         FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
     );
     """)
+
+    inv_cols = [row[1] for row in cursor.execute("PRAGMA table_info(invoices)").fetchall()]
+    if 'cgst_amount' not in inv_cols:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN cgst_amount REAL DEFAULT 0.0;")
+    if 'sgst_amount' not in inv_cols:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN sgst_amount REAL DEFAULT 0.0;")
+    if 'igst_amount' not in inv_cols:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN igst_amount REAL DEFAULT 0.0;")
+    if 'cancellation_reason' not in inv_cols:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN cancellation_reason TEXT;")
+    if 'cancelled_by' not in inv_cols:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN cancelled_by INTEGER;")
+    if 'cancelled_at' not in inv_cols:
+        cursor.execute("ALTER TABLE invoices ADD COLUMN cancelled_at DATETIME;")
 
     # 5. Invoice Items line items table
     cursor.execute("""
@@ -312,7 +332,46 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_reward_redemptions_partner ON reward_redemptions(partner_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_user_id);")
 
-    # Seed Default Admin (status = 'ACTIVE')
+    # Seed Default Super Admin & Admin (status = 'ACTIVE')
+    superadmin = cursor.execute("SELECT id FROM users WHERE email = 'superadmin@mechshakti.com'").fetchone()
+    if not superadmin:
+        try:
+            cursor.execute("""
+            INSERT INTO users (name, email, password_hash, role, phone, shop_name, city, status)
+            VALUES ('Super Admin', 'superadmin@mechshakti.com', ?, 'SUPER_ADMIN', '9900000000', 'Mechshakti Corp HQ', 'Surat', 'ACTIVE')
+            """, (hash_password('superadmin123'),))
+        except sqlite3.IntegrityError:
+            cursor.execute("PRAGMA foreign_keys=OFF;")
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users_migration (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL,
+                phone TEXT,
+                shop_name TEXT,
+                city TEXT,
+                address TEXT,
+                gst_number TEXT,
+                dealer_code TEXT,
+                upi_id TEXT,
+                upi_qr_url TEXT,
+                status TEXT DEFAULT 'PENDING_APPROVAL',
+                rejection_reason TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
+            cursor.execute("INSERT INTO users_migration SELECT * FROM users;")
+            cursor.execute("DROP TABLE users;")
+            cursor.execute("ALTER TABLE users_migration RENAME TO users;")
+            cursor.execute("PRAGMA foreign_keys=ON;")
+            cursor.execute("""
+            INSERT INTO users (name, email, password_hash, role, phone, shop_name, city, status)
+            VALUES ('Super Admin', 'superadmin@mechshakti.com', ?, 'SUPER_ADMIN', '9900000000', 'Mechshakti Corp HQ', 'Surat', 'ACTIVE')
+            """, (hash_password('superadmin123'),))
+
     admin = cursor.execute("SELECT id FROM users WHERE email = 'admin@mechshakti.com'").fetchone()
     if not admin:
         cursor.execute("""

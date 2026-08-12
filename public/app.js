@@ -142,14 +142,18 @@ function showAuthenticatedUI() {
 
   document.querySelector('.bottom-nav').style.display = 'flex';
 
-  if (currentUser && currentUser.role === 'ADMIN') {
-    document.getElementById('drawer-admin-sellers-btn').style.display = 'block';
-    document.getElementById('drawer-admin-warranties-btn').style.display = 'block';
-    document.getElementById('drawer-admin-search-btn').style.display = 'block';
+  if (currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN')) {
+    if (document.getElementById('drawer-admin-sellers-btn')) document.getElementById('drawer-admin-sellers-btn').style.display = 'block';
+    if (document.getElementById('drawer-admin-warranties-btn')) document.getElementById('drawer-admin-warranties-btn').style.display = 'block';
+    if (document.getElementById('drawer-admin-search-btn')) document.getElementById('drawer-admin-search-btn').style.display = 'block';
+    if (document.getElementById('drawer-admin-audit-btn')) document.getElementById('drawer-admin-audit-btn').style.display = 'block';
+    if (document.getElementById('drawer-admin-backup-btn')) document.getElementById('drawer-admin-backup-btn').style.display = 'block';
   } else {
-    document.getElementById('drawer-admin-sellers-btn').style.display = 'none';
-    document.getElementById('drawer-admin-warranties-btn').style.display = 'none';
-    document.getElementById('drawer-admin-search-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-sellers-btn')) document.getElementById('drawer-admin-sellers-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-warranties-btn')) document.getElementById('drawer-admin-warranties-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-search-btn')) document.getElementById('drawer-admin-search-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-audit-btn')) document.getElementById('drawer-admin-audit-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-backup-btn')) document.getElementById('drawer-admin-backup-btn').style.display = 'none';
   }
 }
 
@@ -222,6 +226,9 @@ function switchTab(tabId) {
     loadAdminWarrantiesQueue();
   } else if (tabId === 'admin-search') {
     showView('view-admin-search');
+  } else if (tabId === 'admin-audit') {
+    showView('view-admin-audit');
+    loadAdminAuditLogs();
   }
 }
 
@@ -971,7 +978,8 @@ async function loadAdminSellersList() {
           </div>
         </div>
 
-        <div style="display:flex; gap:8px; margin-top:12px; border-top:1px solid var(--border-color); padding-top:10px;">
+        <div style="display:flex; gap:8px; margin-top:12px; border-top:1px solid var(--border-color); padding-top:10px; flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="openEditPartnerModal(${s.id})">✏️ Edit Profile</button>
           ${s.status === 'PENDING_APPROVAL' ? `
             <button class="btn btn-primary btn-sm" onclick="updatePartnerStatus(${s.id}, 'APPROVE')">✓ Approve Partner</button>
             <button class="btn btn-secondary btn-sm" onclick="updatePartnerStatus(${s.id}, 'REJECT')">✕ Reject</button>
@@ -1083,9 +1091,13 @@ async function loadProfileDetails() {
   document.getElementById('prof-display-email').textContent = currentUser.email;
   document.getElementById('prof-display-role-badge').textContent = currentUser.role;
 
-  document.getElementById('prof-phone').value = currentUser.phone || 'N/A';
-  document.getElementById('prof-shop').value = currentUser.shop_name || 'N/A';
-  document.getElementById('prof-city').value = currentUser.city || 'N/A';
+  document.getElementById('prof-name').value = currentUser.name || '';
+  document.getElementById('prof-phone').value = currentUser.phone || '';
+  document.getElementById('prof-shop').value = currentUser.shop_name || '';
+  document.getElementById('prof-city').value = currentUser.city || '';
+  if (document.getElementById('prof-address')) document.getElementById('prof-address').value = currentUser.address || '';
+  if (document.getElementById('prof-gst')) document.getElementById('prof-gst').value = currentUser.gst_number || '';
+  if (document.getElementById('prof-dealer-code')) document.getElementById('prof-dealer-code').value = currentUser.dealer_code || '';
   document.getElementById('prof-upi-id').value = currentUser.upi_id || '';
 
   if (currentUser.upi_qr_url) {
@@ -1099,18 +1111,33 @@ async function loadProfileDetails() {
   }
 }
 
-async function saveProfileUPI() {
-  const upi = document.getElementById('prof-upi-id').value.trim();
+async function saveProfileDetails(event) {
+  if (event) event.preventDefault();
+
+  const name = document.getElementById('prof-name').value.trim();
+  const phone = document.getElementById('prof-phone').value.trim();
+  const shop_name = document.getElementById('prof-shop').value.trim();
+  const city = document.getElementById('prof-city').value.trim();
+  const address = document.getElementById('prof-address')?.value.trim() || '';
+  const gst_number = document.getElementById('prof-gst')?.value.trim() || '';
+  const dealer_code = document.getElementById('prof-dealer-code')?.value.trim() || '';
+  const upi_id = document.getElementById('prof-upi-id').value.trim();
+
   try {
-    const res = await apiRequest('/api/profile/upi', 'POST', {
-      upi_id: upi,
-      upi_qr_url: uploadedQRBase64
+    const res = await apiRequest('/api/profile', 'PUT', {
+      name, phone, shop_name, city, address, gst_number, dealer_code, upi_id, upi_qr_url: uploadedQRBase64
     });
-    currentUser.upi_id = upi;
-    currentUser.upi_qr_url = uploadedQRBase64;
+    currentUser = res.user;
     localStorage.setItem('mech_user', JSON.stringify(currentUser));
-    alert('✓ Seller UPI ID and Payment QR Code saved successfully!');
-  } catch (err) { alert(err.message); }
+    showAuthenticatedUI();
+    alert('✓ Profile & payment details updated successfully!');
+  } catch (err) {
+    alert('Failed to save profile: ' + err.message);
+  }
+}
+
+async function saveProfileUPI() {
+  saveProfileDetails(null);
 }
 
 // PAYMENTS LIST & MODAL
@@ -1519,6 +1546,178 @@ document.getElementById('form-product')?.addEventListener('submit', async (e) =>
       if (document.getElementById('view-new-invoice').style.display !== 'none') {
         initNewBillWorkflow();
       }
+    } catch (err) { alert(err.message); }
+  });
+});
+
+function openEditProductModal(prodId, name, code, price, gst, status) {
+  document.getElementById('edit-prod-id').value = prodId;
+  document.getElementById('edit-prod-name').value = name || '';
+  document.getElementById('edit-prod-code').value = code || '';
+  document.getElementById('edit-prod-price').value = price || '';
+  document.getElementById('edit-prod-gst').value = gst || 18;
+  document.getElementById('edit-prod-status').value = status || 'ACTIVE';
+  document.getElementById('modal-edit-product').style.display = 'flex';
+}
+function closeEditProductModal() { document.getElementById('modal-edit-product').style.display = 'none'; }
+
+function openEditPartnerModal(sellerId) {
+  apiRequest('/api/admin/sellers?status=ALL').then(data => {
+    const s = (data.sellers || []).find(item => item.id == sellerId);
+    if (!s) return alert('Partner account not found');
+
+    document.getElementById('edit-partner-id').value = s.id;
+    document.getElementById('edit-partner-name').value = s.name || '';
+    document.getElementById('edit-partner-phone').value = s.phone || '';
+    document.getElementById('edit-partner-shop').value = s.shop_name || '';
+    document.getElementById('edit-partner-city').value = s.city || '';
+    document.getElementById('edit-partner-address').value = s.address || '';
+    document.getElementById('edit-partner-upi').value = s.upi_id || '';
+    document.getElementById('edit-partner-status').value = s.status || 'ACTIVE';
+    document.getElementById('modal-edit-partner-profile').style.display = 'flex';
+  }).catch(err => alert(err.message));
+}
+function closeEditPartnerModal() { document.getElementById('modal-edit-partner-profile').style.display = 'none'; }
+
+document.getElementById('form-edit-product')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const prodId = document.getElementById('edit-prod-id').value;
+  const name = document.getElementById('edit-prod-name').value.trim();
+  const model_code = document.getElementById('edit-prod-code').value.trim();
+  const selling_price = parseFloat(document.getElementById('edit-prod-price').value);
+  const gst_rate = parseFloat(document.getElementById('edit-prod-gst').value);
+  const status = document.getElementById('edit-prod-status').value;
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      await apiRequest(`/api/admin/products/${prodId}`, 'PUT', { name, model_code, selling_price, gst_rate, status });
+      closeEditProductModal();
+      alert('✓ Battery model updated successfully!');
+      if (document.getElementById('view-new-invoice').style.display !== 'none') {
+        initNewBillWorkflow();
+      }
+    } catch (err) { alert(err.message); }
+  });
+});
+
+document.getElementById('form-edit-partner-profile')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const partnerId = document.getElementById('edit-partner-id').value;
+  const name = document.getElementById('edit-partner-name').value.trim();
+  const phone = document.getElementById('edit-partner-phone').value.trim();
+  const shop_name = document.getElementById('edit-partner-shop').value.trim();
+  const city = document.getElementById('edit-partner-city').value.trim();
+  const address = document.getElementById('edit-partner-address').value.trim();
+  const upi_id = document.getElementById('edit-partner-upi').value.trim();
+  const status = document.getElementById('edit-partner-status').value;
+  const btn = e.target.querySelector('button[type="submit"]');
+
+  await withLoadingState(btn, async () => {
+    try {
+      await apiRequest(`/api/admin/sellers/${partnerId}/profile`, 'PUT', { name, phone, shop_name, city, address, upi_id, status });
+      closeEditPartnerModal();
+      alert('✓ Partner profile updated by Admin!');
+      loadAdminSellersList();
+    } catch (err) { alert(err.message); }
+  });
+});
+
+// ADMIN AUDIT LOGS & DATABASE BACKUP FUNCTIONS (Phase 0.2 & 0.3)
+async function loadAdminAuditLogs() {
+  const container = document.getElementById('admin-audit-logs-container');
+  if (!container) return;
+
+  const q = document.getElementById('audit-log-search-input')?.value.trim() || '';
+  try {
+    const logs = await apiRequest(`/api/admin/audit-logs?q=${encodeURIComponent(q)}`);
+    if (!logs || logs.length === 0) {
+      container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">No audit log entries found.</div>';
+      return;
+    }
+
+    let html = `
+      <table class="table" style="font-size:0.82rem;">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Timestamp</th>
+            <th>Actor</th>
+            <th>Action</th>
+            <th>Target</th>
+            <th>Reason / Details</th>
+            <th>IP Address</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    logs.forEach(l => {
+      html += `
+        <tr>
+          <td>#${l.id}</td>
+          <td><small style="color:var(--text-muted);">${l.created_at}</small></td>
+          <td><strong>${l.actor_name || 'System'}</strong><br><small>${l.actor_email || ''}</small></td>
+          <td><span class="badge badge-${l.action_type.includes('CANCEL') || l.action_type.includes('DENIED') ? 'rejected' : 'active'}">${l.action_type}</span></td>
+          <td>${l.target_entity} ${l.target_id ? `#${l.target_id}` : ''}</td>
+          <td>${l.reason || l.new_value || '-'}</td>
+          <td><code>${l.ip_address || 'local'}</code></td>
+        </tr>
+      `;
+    });
+
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<div style="color:red; text-align:center; padding:12px;">${err.message}</div>`;
+  }
+}
+
+async function downloadDatabaseBackup() {
+  try {
+    const res = await apiRequest('/api/admin/export-database');
+    const jsonStr = JSON.stringify(res, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mechshakti_db_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    alert('✓ Full Database Backup (.json) downloaded securely!');
+  } catch (err) {
+    alert('Backup Export Failed: ' + err.message);
+  }
+}
+
+// INVOICE CANCELLATION HANDLERS (Phase 1.2)
+function openCancelInvoiceModal(invId) {
+  document.getElementById('cancel-invoice-id').value = invId;
+  document.getElementById('cancel-invoice-reason').value = '';
+  document.getElementById('modal-cancel-invoice').style.display = 'flex';
+}
+
+function closeCancelInvoiceModal() {
+  document.getElementById('modal-cancel-invoice').style.display = 'none';
+}
+
+document.getElementById('form-cancel-invoice')?.addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const invId = document.getElementById('cancel-invoice-id').value;
+  const reason = document.getElementById('cancel-invoice-reason').value.trim();
+  if (!reason) return alert('Please enter a cancellation reason.');
+
+  const btn = e.target.querySelector('button[type="submit"]');
+  await withLoadingState(btn, async () => {
+    try {
+      const res = await apiRequest(`/api/invoices/${invId}/cancel`, 'POST', { reason });
+      closeCancelInvoiceModal();
+      closeInvoicePreviewModal();
+      alert(res.message);
+      loadInvoicesList();
+      if (typeof loadDashboardStats === 'function') loadDashboardStats();
     } catch (err) { alert(err.message); }
   });
 });

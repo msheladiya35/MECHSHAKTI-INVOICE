@@ -282,6 +282,18 @@ def calculate_and_award_referral_points(conn, partner_id, invoice_id, items):
                 current_points = current_points / 2.0
 
 
+def log_audit_entry(conn, actor_user_id, action_type, target_entity, target_id=None, old_value=None, new_value=None, reason=None, ip_address=None):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO audit_logs (actor_user_id, action_type, target_entity, target_id, old_value, new_value, reason, ip_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (actor_user_id, action_type, target_entity, target_id, str(old_value) if old_value is not None else None, str(new_value) if new_value is not None else None, reason, ip_address))
+        conn.commit()
+    except Exception as e:
+        print("Audit log error:", e)
+
+
 class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=os.path.join(os.path.dirname(__file__), "public"), **kwargs)
@@ -465,13 +477,18 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "pending_count": pending_cnt
                     })
 
-                # ADMIN 1-CLICK COMPLETE DATABASE BACKUP EXPORT
+                # SUPER_ADMIN / ADMIN 1-CLICK COMPLETE DATABASE BACKUP EXPORT (Phase 0.2)
                 elif path == "/api/admin/export-database":
-                    if user["role"] != "ADMIN":
-                        return self.send_error_json("Forbidden: Admin access required", 403)
+                    ip_addr = self.client_address[0] if hasattr(self, 'client_address') and self.client_address else None
+                    if user["role"] not in ["SUPER_ADMIN", "ADMIN"]:
+                        log_audit_entry(conn, user["id"], "UNAUTHORIZED_BACKUP_ATTEMPT", "database", None, None, None, f"Denied backup attempt to user role {user['role']}", ip_addr)
+                        return self.send_error_json("Forbidden: Super Admin access required for database backup export", 403)
                     
+                    log_audit_entry(conn, user["id"], "BACKUP_DOWNLOADED", "database", None, None, "SUCCESS", "Full database backup exported", ip_addr)
+
                     backup = {
                         "exported_at": datetime.datetime.now().isoformat(),
+                        "exported_by": user["email"],
                         "users": [dict(r) for r in cursor.execute("SELECT id, name, email, role, phone, shop_name, city, address, upi_id, status, created_at FROM users").fetchall()],
                         "customers": [dict(r) for r in cursor.execute("SELECT * FROM customers").fetchall()],
                         "products": [dict(r) for r in cursor.execute("SELECT * FROM products").fetchall()],
@@ -480,9 +497,32 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "payments": [dict(r) for r in cursor.execute("SELECT * FROM payments").fetchall()],
                         "warranty_registrations": [dict(r) for r in cursor.execute("SELECT * FROM warranty_registrations").fetchall()],
                         "referrals": [dict(r) for r in cursor.execute("SELECT * FROM referrals").fetchall()],
-                        "reward_transactions": [dict(r) for r in cursor.execute("SELECT * FROM reward_transactions").fetchall()]
+                        "reward_transactions": [dict(r) for r in cursor.execute("SELECT * FROM reward_transactions").fetchall()],
+                        "audit_logs": [dict(r) for r in cursor.execute("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 500").fetchall()]
                     }
                     return self.send_json(backup)
+
+                # ADMIN AUDIT LOGS SEARCH & DISPLAY (Phase 0.3)
+                elif path == "/api/admin/audit-logs":
+                    if user["role"] not in ["SUPER_ADMIN", "ADMIN"]:
+                        return self.send_error_json("Forbidden: Admin access required", 403)
+
+                    search_q = query_params.get("q", [""])[0].strip()
+                    sql = """
+                        SELECT a.*, u.name as actor_name, u.email as actor_email, u.role as actor_role
+                        FROM audit_logs a
+                        LEFT JOIN users u ON u.id = a.actor_user_id
+                        WHERE 1=1
+                    """
+                    params = []
+                    if search_q:
+                        sql += " AND (a.action_type LIKE ? OR a.target_entity LIKE ? OR u.name LIKE ? OR u.email LIKE ?)"
+                        q_like = f"%{search_q}%"
+                        params.extend([q_like, q_like, q_like, q_like])
+                    sql += " ORDER BY a.id DESC LIMIT 200"
+
+                    logs = cursor.execute(sql, params).fetchall()
+                    return self.send_json([dict(l) for l in logs])
 
                 # ADMIN GLOBAL SEARCH & BATTERY TRACEABILITY
                 elif path == "/api/admin/global-search":
@@ -1388,8 +1428,13 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     })
 
                 max_row = cursor.execute("SELECT MAX(id) as max_id FROM invoices").fetchone()
-                next_seq = ((max_row["max_id"] if max_row and max_row["max_id"] else 0) + 1) + 1000
-                inv_number = f"MSI-{partner_id}-{next_seq}"
+                next_seq = ((max_row["max_id"] if max_row and max_row["max_id"] else 0) + 1)
+                fy_code = "26-27"
+                inv_number = f"MS/SRT{partner_id:02d}/{fy_code}/{next_seq:06d}"
+
+                cgst = round(gst_amount / 2.0, 2)
+                sgst = round(gst_amount / 2.0, 2)
+                igst = 0.0
 
                 if payment_mode == 'PAID':
                     actual_paid = round(grand_total, 2)
@@ -1402,11 +1447,14 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     pay_status = 'PAID' if actual_paid >= round(grand_total, 2) else ('PARTIALLY_PAID' if actual_paid > 0 else 'UNPAID')
 
                 cursor.execute("""
-                    INSERT INTO invoices (invoice_number, client_nonce, partner_id, customer_id, invoice_date, taxable_amount, discount_amount, gst_amount, grand_total, paid_amount, payment_status, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (inv_number, client_nonce, partner_id, customer_id, invoice_date, round(taxable_amount, 2), round(discount_amount, 2), round(gst_amount, 2), round(grand_total, 2), actual_paid, pay_status, notes))
+                    INSERT INTO invoices (invoice_number, client_nonce, partner_id, customer_id, invoice_date, taxable_amount, discount_amount, gst_amount, cgst_amount, sgst_amount, igst_amount, grand_total, paid_amount, payment_status, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (inv_number, client_nonce, partner_id, customer_id, invoice_date, round(taxable_amount, 2), round(discount_amount, 2), round(gst_amount, 2), cgst, sgst, igst, round(grand_total, 2), actual_paid, pay_status, notes))
                 
                 inv_id = cursor.lastrowid
+
+                # Fetch Customer info for automatic warranty registration
+                cust_info = cursor.execute("SELECT name, mobile, vehicle_number FROM customers WHERE id = ?", (customer_id,)).fetchone()
 
                 for pi in processed_items:
                     cursor.execute("""
@@ -1423,6 +1471,24 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         except sqlite3.IntegrityError:
                             pass
 
+                        # Phase 5: Automatic Warranty Activation
+                        if cust_info:
+                            try:
+                                p_date = datetime.date.fromisoformat(invoice_date)
+                                exp_date = datetime.date(p_date.year + 2, p_date.month, p_date.day)
+                            except Exception:
+                                p_date = datetime.date.today()
+                                exp_date = datetime.date(p_date.year + 2, p_date.month, p_date.day)
+
+                            try:
+                                cursor.execute("""
+                                    INSERT INTO warranty_registrations 
+                                    (battery_code, product_id, partner_id, customer_name, customer_mobile, purchase_date, expiry_date, vehicle_number, status, notes)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'VALID', ?)
+                                """, (pi["battery_code"], pi["product_id"], partner_id, cust_info["name"], cust_info["mobile"], p_date.isoformat(), exp_date.isoformat(), cust_info["vehicle_number"], f"Auto-registered on Invoice #{inv_number}"))
+                            except sqlite3.IntegrityError:
+                                pass
+
                 if actual_paid > 0:
                     cursor.execute("""
                         INSERT INTO payments (partner_id, customer_id, invoice_id, amount, payment_method, payment_date, notes)
@@ -1430,6 +1496,8 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     """, (partner_id, customer_id, inv_id, actual_paid, payment_method, invoice_date, f'Bill #{inv_number} payment'))
 
                 calculate_and_award_referral_points(conn, partner_id, inv_id, processed_items)
+
+                log_audit_entry(conn, user["id"], "INVOICE_CREATED", "invoices", inv_id, None, inv_number, f"Created invoice #{inv_number} for customer #{customer_id}")
 
                 conn.commit()
 
@@ -1442,6 +1510,35 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "outstanding": max(0.0, round(grand_total - actual_paid, 2)),
                     "payment_status": pay_status
                 }, status=201)
+
+            # CANCEL INVOICE WITH REASON & AUDIT TRAIL (Phase 1.2 & 0.3)
+            elif path.startswith("/api/invoices/") and path.endswith("/cancel"):
+                parts = path.split("/")
+                inv_id = parts[-2]
+                reason = body.get("reason", "").strip()
+                if not reason:
+                    return self.send_error_json("Please provide a cancellation reason.", 400)
+
+                inv = cursor.execute("SELECT * FROM invoices WHERE id = ?", (inv_id,)).fetchone()
+                if not inv:
+                    return self.send_error_json("Invoice not found.", 404)
+
+                if user["role"] == "PARTNER" and inv["partner_id"] != user["id"]:
+                    return self.send_error_json("Forbidden: Access denied to this invoice.", 403)
+
+                if inv["payment_status"] == "CANCELLED":
+                    return self.send_error_json("This invoice is already cancelled.", 400)
+
+                cursor.execute("""
+                    UPDATE invoices 
+                    SET payment_status = 'CANCELLED', cancellation_reason = ?, cancelled_by = ?, cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (reason, user["id"], inv_id))
+
+                log_audit_entry(conn, user["id"], "INVOICE_CANCELLED", "invoices", inv_id, inv["payment_status"], "CANCELLED", reason)
+                conn.commit()
+
+                return self.send_json({"message": f"✓ Invoice #{inv['invoice_number']} cancelled successfully.", "status": "CANCELLED"})
 
             else:
                 return self.send_error_json("Not Found", 404)
@@ -1545,6 +1642,94 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                 updated_cust = cursor.execute("SELECT * FROM customers WHERE id = ?", (cust_id,)).fetchone()
                 return self.send_json({"message": "✓ Customer updated successfully.", "customer": dict(updated_cust)})
+
+            # ADMIN EDIT / UPDATE BATTERY PRODUCT
+            elif path.startswith("/api/admin/products/"):
+                if user["role"] != "ADMIN":
+                    return self.send_error_json("Forbidden: Admin access required", 403)
+                
+                prod_id = path.split("/")[-1]
+                prod_row = cursor.execute("SELECT * FROM products WHERE id = ?", (prod_id,)).fetchone()
+                if not prod_row:
+                    return self.send_error_json("Product not found.", 404)
+                prod = dict(prod_row)
+
+                name = body.get("name", prod["name"]).strip()
+                model_code = body.get("model_code", prod["model_code"]).strip().upper()
+                selling_price = float(body.get("selling_price", prod["selling_price"]))
+                gst_rate = float(body.get("gst_rate", prod["gst_rate"]))
+                status = body.get("status", prod.get("status", "ACTIVE")).strip().upper()
+
+                if not name or not model_code:
+                    return self.send_error_json("Product name and model code are required.", 400)
+
+                cursor.execute("""
+                    UPDATE products 
+                    SET name = ?, model_code = ?, selling_price = ?, gst_rate = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (name, model_code, selling_price, gst_rate, status, prod_id))
+                conn.commit()
+
+                updated_prod = cursor.execute("SELECT * FROM products WHERE id = ?", (prod_id,)).fetchone()
+                return self.send_json({"message": f"✓ Battery model '{name}' updated successfully.", "product": dict(updated_prod)})
+
+            # FULL USER PROFILE EDIT
+            elif path == "/api/profile":
+                name = body.get("name", user["name"]).strip()
+                phone = body.get("phone", user.get("phone", "") or "").strip()
+                shop_name = body.get("shop_name", user.get("shop_name", "") or "").strip()
+                city = body.get("city", user.get("city", "") or "").strip()
+                address = body.get("address", user.get("address", "") or "").strip()
+                gst_number = body.get("gst_number", user.get("gst_number", "") or "").strip().upper()
+                dealer_code = body.get("dealer_code", user.get("dealer_code", "") or "").strip().upper()
+                upi_id = body.get("upi_id", user.get("upi_id", "") or "").strip()
+                upi_qr_url = body.get("upi_qr_url", user.get("upi_qr_url", "") or "").strip()
+
+                if not name:
+                    return self.send_error_json("Full name is required.", 400)
+
+                cursor.execute("""
+                    UPDATE users 
+                    SET name = ?, phone = ?, shop_name = ?, city = ?, address = ?, gst_number = ?, dealer_code = ?, upi_id = ?, upi_qr_url = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (name, phone, shop_name, city, address, gst_number, dealer_code, upi_id, upi_qr_url, user["id"]))
+                conn.commit()
+
+                updated_user = cursor.execute("SELECT id, name, email, role, phone, shop_name, city, address, gst_number, dealer_code, upi_id, upi_qr_url, status FROM users WHERE id = ?", (user["id"],)).fetchone()
+                return self.send_json({"message": "✓ Profile details updated successfully.", "user": dict(updated_user)})
+
+            # ADMIN EDIT ANY SELLER / PARTNER PROFILE
+            elif path.startswith("/api/admin/sellers/") and path.endswith("/profile"):
+                if user["role"] != "ADMIN":
+                    return self.send_error_json("Forbidden: Admin access required", 403)
+
+                parts = path.split("/")
+                target_seller_id = parts[-2]
+                seller_row = cursor.execute("SELECT * FROM users WHERE id = ? AND role = 'PARTNER'", (target_seller_id,)).fetchone()
+                if not seller_row:
+                    return self.send_error_json("Partner account not found.", 404)
+                seller = dict(seller_row)
+
+                name = body.get("name", seller["name"]).strip()
+                phone = body.get("phone", seller.get("phone", "") or "").strip()
+                shop_name = body.get("shop_name", seller.get("shop_name", "") or "").strip()
+                city = body.get("city", seller.get("city", "") or "").strip()
+                address = body.get("address", seller.get("address", "") or "").strip()
+                gst_number = body.get("gst_number", seller.get("gst_number", "") or "").strip().upper()
+                dealer_code = body.get("dealer_code", seller.get("dealer_code", "") or "").strip().upper()
+                upi_id = body.get("upi_id", seller.get("upi_id", "") or "").strip()
+                upi_qr_url = body.get("upi_qr_url", seller.get("upi_qr_url", "") or "").strip()
+                status = body.get("status", seller["status"]).strip().upper()
+
+                cursor.execute("""
+                    UPDATE users 
+                    SET name = ?, phone = ?, shop_name = ?, city = ?, address = ?, gst_number = ?, dealer_code = ?, upi_id = ?, upi_qr_url = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (name, phone, shop_name, city, address, gst_number, dealer_code, upi_id, upi_qr_url, status, target_seller_id))
+                conn.commit()
+
+                updated_seller = cursor.execute("SELECT id, name, email, role, phone, shop_name, city, address, gst_number, dealer_code, upi_id, upi_qr_url, status FROM users WHERE id = ?", (target_seller_id,)).fetchone()
+                return self.send_json({"message": f"✓ Partner '{name}' profile updated by Admin.", "seller": dict(updated_seller)})
 
             # ADMIN CANCEL EXISTING WARRANTY WITH AUDIT TRAIL (Section 10)
             elif path.startswith("/api/admin/warranties/") and path.endswith("/cancel"):
