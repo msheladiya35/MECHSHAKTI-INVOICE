@@ -25,7 +25,7 @@ def generate_token(user_data: dict) -> str:
         "role": user_data["role"],
         "shop_name": user_data.get("shop_name", ""),
         "status": user_data.get("status", "ACTIVE"),
-        "exp": int(datetime.datetime.now().timestamp()) + 86400 * 30
+        "exp": int(time.time()) + (86400 * 365)
     }
     
     b64_header = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
@@ -61,7 +61,7 @@ def verify_token(token: str) -> dict:
         payload_json = base64.urlsafe_b64decode(b64_payload).decode('utf-8')
         payload = json.loads(payload_json)
         
-        if payload.get("exp", 0) < datetime.datetime.now().timestamp():
+        if payload.get("exp", 0) < time.time():
             return None
             
         return payload
