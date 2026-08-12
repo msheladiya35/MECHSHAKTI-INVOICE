@@ -6,7 +6,7 @@ import subprocess
 import time
 import os
 
-BASE_URL = "http://localhost:8080"
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:8080")
 
 def request(path, method="GET", data=None, token=None):
     url = BASE_URL + path
@@ -91,6 +91,21 @@ def run_tests():
     p1 = prods[0]
     p2 = prods[1]
     print(f"✔ Loaded battery product catalog ({len(prods)} models).")
+
+    # 7a. ISOLATION TEST: Seller 1 cannot create a bill or payment for Seller 2's customer
+    status, res = request("/api/invoices", "POST", {
+        "customer_id": cust_b_id,
+        "items": [{"product_id": p1["id"], "quantity": 1, "unit_price": p1["selling_price"]}]
+    }, token=seller1_token)
+    assert status == 403, f"UNAUTHORIZED BILLING FAILURE! Seller 1 billed Seller 2's customer: {res}"
+
+    status, res = request("/api/payments", "POST", {
+        "customer_id": cust_b_id,
+        "amount": 1.0,
+        "payment_method": "CASH"
+    }, token=seller1_token)
+    assert status == 403, f"UNAUTHORIZED PAYMENT FAILURE! Seller 1 recorded payment for Seller 2's customer: {res}"
+    print("✔ ISOLATION PASSED: Seller 1 CANNOT bill or record payments for Seller 2 Customer B.")
 
     # 8. Seller 1 Creates Invoice for Customer A
     status, inv_a = request("/api/invoices", "POST", {

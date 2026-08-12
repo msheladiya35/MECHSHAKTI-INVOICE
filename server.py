@@ -9,6 +9,7 @@ import time
 import hmac
 import hashlib
 import base64
+import math
 import sqlite3
 from db import get_db, init_db, hash_password
 
@@ -430,11 +431,18 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     if not prod_id:
                         return self.send_error_json("Product ID required", 400)
 
+                    customer = cursor.execute("SELECT partner_id FROM customers WHERE id = ?", (cust_id,)).fetchone()
+                    if not customer:
+                        return self.send_error_json("Customer not found.", 404)
+                    if user["role"] == "PARTNER" and customer["partner_id"] != user["id"]:
+                        return self.send_error_json("Forbidden: Access denied to this customer.", 403)
+
                     last_item = cursor.execute("""
                         SELECT ii.unit_price 
                         FROM invoice_items ii
                         JOIN invoices i ON i.id = ii.invoice_id
                         WHERE i.partner_id = ? AND i.customer_id = ? AND ii.product_id = ?
+                          AND i.payment_status != 'CANCELLED'
                         ORDER BY i.invoice_date DESC, i.id DESC
                         LIMIT 1
                     """, (user["id"], cust_id, prod_id)).fetchone()
@@ -454,12 +462,10 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     sql = """
                         SELECT u.id, u.name, u.email, u.phone, u.shop_name, u.city, u.address, 
                                u.gst_number, u.dealer_code, u.status, u.rejection_reason, u.created_at,
-                               COUNT(DISTINCT c.id) as total_customers,
-                               COUNT(DISTINCT i.id) as total_invoices,
-                               COALESCE(SUM(i.grand_total), 0.0) as total_sales
+                               (SELECT COUNT(*) FROM customers c WHERE c.partner_id = u.id) as total_customers,
+                               (SELECT COUNT(*) FROM invoices i WHERE i.partner_id = u.id AND i.payment_status != 'CANCELLED') as total_invoices,
+                               (SELECT COALESCE(SUM(i.grand_total), 0.0) FROM invoices i WHERE i.partner_id = u.id AND i.payment_status != 'CANCELLED') as total_sales
                         FROM users u
-                        LEFT JOIN customers c ON c.partner_id = u.id
-                        LEFT JOIN invoices i ON i.partner_id = u.id
                         WHERE u.role = 'PARTNER'
                     """
                     params = []
@@ -467,7 +473,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         sql += " AND u.status = ?"
                         params.append(status_filter.upper())
 
-                    sql += " GROUP BY u.id ORDER BY u.created_at DESC, u.id DESC"
+                    sql += " ORDER BY u.created_at DESC, u.id DESC"
                     sellers = cursor.execute(sql, params).fetchall()
                     
                     pending_cnt = cursor.execute("SELECT COUNT(*) as cnt FROM users WHERE role = 'PARTNER' AND status = 'PENDING_APPROVAL'").fetchone()["cnt"]
@@ -612,12 +618,14 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                     invs = cursor.execute("""
                         SELECT id, invoice_number, invoice_date as tx_date, grand_total as amount, 'PURCHASE' as type, payment_status as status
-                        FROM invoices WHERE customer_id = ?
+                        FROM invoices WHERE customer_id = ? AND payment_status != 'CANCELLED'
                     """, (cust_id,)).fetchall()
 
                     pmts = cursor.execute("""
-                        SELECT id, reference_no as invoice_number, payment_date as tx_date, amount, 'PAYMENT' as type, payment_method as status
-                        FROM payments WHERE customer_id = ?
+                        SELECT p.id, p.reference_no as invoice_number, p.payment_date as tx_date, p.amount, 'PAYMENT' as type, p.payment_method as status
+                        FROM payments p
+                        LEFT JOIN invoices i ON i.id = p.invoice_id
+                        WHERE p.customer_id = ? AND (p.invoice_id IS NULL OR i.payment_status != 'CANCELLED')
                     """, (cust_id,)).fetchall()
 
                     txns = [dict(i) for i in invs] + [dict(p) for p in pmts]
@@ -631,8 +639,13 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                             running_balance -= t["amount"]
                         t["running_balance"] = round(running_balance, 2)
 
-                    tot_billed = cursor.execute("SELECT COALESCE(SUM(grand_total), 0.0) as val FROM invoices WHERE customer_id = ?", (cust_id,)).fetchone()["val"]
-                    tot_paid = cursor.execute("SELECT COALESCE(SUM(amount), 0.0) as val FROM payments WHERE customer_id = ?", (cust_id,)).fetchone()["val"]
+                    tot_billed = cursor.execute("SELECT COALESCE(SUM(grand_total), 0.0) as val FROM invoices WHERE customer_id = ? AND payment_status != 'CANCELLED'", (cust_id,)).fetchone()["val"]
+                    tot_paid = cursor.execute("""
+                        SELECT COALESCE(SUM(p.amount), 0.0) as val
+                        FROM payments p
+                        LEFT JOIN invoices i ON i.id = p.invoice_id
+                        WHERE p.customer_id = ? AND (p.invoice_id IS NULL OR i.payment_status != 'CANCELLED')
+                    """, (cust_id,)).fetchone()["val"]
 
                     return self.send_json({
                         "customer": dict(cust),
@@ -654,7 +667,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                                    COALESCE(SUM(i.grand_total), 0.0) as total_billed,
                                    (COALESCE(SUM(i.grand_total), 0.0) - COALESCE(SUM(i.paid_amount), 0.0)) as outstanding_balance
                             FROM customers c
-                            LEFT JOIN invoices i ON i.customer_id = c.id AND i.partner_id = c.partner_id
+                            LEFT JOIN invoices i ON i.customer_id = c.id AND i.partner_id = c.partner_id AND i.payment_status != 'CANCELLED'
                             {where_clause} AND c.partner_id = ?
                             GROUP BY c.id
                             ORDER BY c.name ASC
@@ -668,7 +681,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                                    (COALESCE(SUM(i.grand_total), 0.0) - COALESCE(SUM(i.paid_amount), 0.0)) as outstanding_balance
                             FROM customers c
                             JOIN users u ON u.id = c.partner_id
-                            LEFT JOIN invoices i ON i.customer_id = c.id
+                            LEFT JOIN invoices i ON i.customer_id = c.id AND i.payment_status != 'CANCELLED'
                             {where_clause}
                             GROUP BY c.id
                             ORDER BY c.name ASC
@@ -685,15 +698,34 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     return self.send_json(res)
 
                 # PRODUCTS LIST (Includes active global products + seller custom products)
-                elif path == "/api/products":
+                elif path == "/api/products" or path == "/api/admin/products":
+                    search_q = query_params.get("q", [None])[0]
+                    status_f = query_params.get("status", [None])[0]
+
                     if user["role"] == "PARTNER":
-                        products = cursor.execute("""
+                        sql = """
                             SELECT * FROM products 
-                            WHERE status = 'ACTIVE' AND (custom_partner_id IS NULL OR custom_partner_id = ?)
-                            ORDER BY is_custom ASC, id ASC
-                        """, (user["id"],)).fetchall()
+                            WHERE (status = 'ACTIVE' OR status IS NULL) 
+                              AND (custom_partner_id IS NULL OR custom_partner_id = ?)
+                        """
+                        params = [user["id"]]
+                        if search_q:
+                            sql += " AND (name LIKE ? OR model_code LIKE ?)"
+                            params.extend([f"%{search_q}%", f"%{search_q}%"])
+                        sql += " ORDER BY is_custom ASC, model_code ASC"
+                        products = cursor.execute(sql, params).fetchall()
                     else:
-                        products = cursor.execute("SELECT * FROM products WHERE status = 'ACTIVE' ORDER BY id ASC").fetchall()
+                        sql = "SELECT * FROM products WHERE 1=1"
+                        params = []
+                        if status_f and status_f.upper() != 'ALL':
+                            sql += " AND status = ?"
+                            params.append(status_f.upper())
+                        if search_q:
+                            sql += " AND (name LIKE ? OR model_code LIKE ?)"
+                            params.extend([f"%{search_q}%", f"%{search_q}%"])
+                        sql += " ORDER BY is_custom ASC, model_code ASC"
+                        products = cursor.execute(sql, params).fetchall()
+
                     return self.send_json([dict(p) for p in products])
 
                 # PAYMENTS LIST (For Payments Ledger)
@@ -751,7 +783,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     res = []
                     for inv in invoices:
                         d = dict(inv)
-                        d["outstanding"] = max(0.0, round(d["grand_total"] - (d.get("paid_amount") or 0.0), 2))
+                        d["outstanding"] = 0.0 if d["payment_status"] == "CANCELLED" else max(0.0, round(d["grand_total"] - (d.get("paid_amount") or 0.0), 2))
                         res.append(d)
 
                     return self.send_json(res)
@@ -788,7 +820,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     payments = cursor.execute("SELECT * FROM payments WHERE invoice_id = ? ORDER BY id DESC", (inv_id,)).fetchall()
                     
                     inv_dict = dict(inv)
-                    inv_dict["outstanding"] = max(0.0, round(inv_dict["grand_total"] - (inv_dict.get("paid_amount") or 0.0), 2))
+                    inv_dict["outstanding"] = 0.0 if inv_dict["payment_status"] == "CANCELLED" else max(0.0, round(inv_dict["grand_total"] - (inv_dict.get("paid_amount") or 0.0), 2))
 
                     return self.send_json({
                         "invoice": inv_dict,
@@ -810,31 +842,42 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                     if report_type == "dashboard":
                         today_str = datetime.date.today().isoformat()
-                        p_clause = " WHERE partner_id = ?" if seller_filter else " WHERE 1=1"
-                        p_params = [seller_filter] if seller_filter else []
+                        invoice_clause = " WHERE payment_status != 'CANCELLED'"
+                        invoice_params = []
+                        payment_clause = """
+                            FROM payments p
+                            LEFT JOIN invoices i ON i.id = p.invoice_id
+                            WHERE (p.invoice_id IS NULL OR i.payment_status != 'CANCELLED')
+                        """
+                        payment_params = []
+                        if seller_filter:
+                            invoice_clause += " AND partner_id = ?"
+                            invoice_params.append(seller_filter)
+                            payment_clause += " AND p.partner_id = ?"
+                            payment_params.append(seller_filter)
 
-                        t_sales = cursor.execute(f"SELECT COALESCE(SUM(grand_total), 0.0) as val FROM invoices {p_clause} AND invoice_date = ?", p_params + [today_str]).fetchone()["val"]
-                        t_coll = cursor.execute(f"SELECT COALESCE(SUM(amount), 0.0) as val FROM payments {p_clause} AND payment_date = ?", p_params + [today_str]).fetchone()["val"]
+                        t_sales = cursor.execute(f"SELECT COALESCE(SUM(grand_total), 0.0) as val FROM invoices {invoice_clause} AND invoice_date = ?", invoice_params + [today_str]).fetchone()["val"]
+                        t_coll = cursor.execute(f"SELECT COALESCE(SUM(p.amount), 0.0) as val {payment_clause} AND p.payment_date = ?", payment_params + [today_str]).fetchone()["val"]
 
-                        tot_bills = cursor.execute(f"SELECT COALESCE(SUM(grand_total), 0.0) as val FROM invoices {p_clause}", p_params).fetchone()["val"]
-                        tot_paid = cursor.execute(f"SELECT COALESCE(SUM(amount), 0.0) as val FROM payments {p_clause}", p_params).fetchone()["val"]
+                        tot_bills = cursor.execute(f"SELECT COALESCE(SUM(grand_total), 0.0) as val FROM invoices {invoice_clause}", invoice_params).fetchone()["val"]
+                        tot_paid = cursor.execute(f"SELECT COALESCE(SUM(p.amount), 0.0) as val {payment_clause}", payment_params).fetchone()["val"]
                         tot_out = max(0.0, round(tot_bills - tot_paid, 2))
 
                         t_batt = cursor.execute(f"""
                             SELECT COALESCE(SUM(ii.quantity), 0) as val
                             FROM invoice_items ii
                             JOIN invoices i ON i.id = ii.invoice_id
-                            {p_clause.replace('partner_id', 'i.partner_id')} AND i.invoice_date = ?
-                        """, p_params + [today_str]).fetchone()["val"]
+                            {invoice_clause.replace('payment_status', 'i.payment_status').replace('partner_id', 'i.partner_id')} AND i.invoice_date = ?
+                        """, invoice_params + [today_str]).fetchone()["val"]
 
-                        tot_invoices = cursor.execute(f"SELECT COUNT(*) as cnt FROM invoices {p_clause}", p_params).fetchone()["cnt"]
-                        tot_custs = cursor.execute(f"SELECT COUNT(DISTINCT customer_id) as cnt FROM invoices {p_clause}", p_params).fetchone()["cnt"]
+                        tot_invoices = cursor.execute(f"SELECT COUNT(*) as cnt FROM invoices {invoice_clause}", invoice_params).fetchone()["cnt"]
+                        tot_custs = cursor.execute(f"SELECT COUNT(DISTINCT customer_id) as cnt FROM invoices {invoice_clause}", invoice_params).fetchone()["cnt"]
                         tot_batts = cursor.execute(f"""
                             SELECT COALESCE(SUM(ii.quantity), 0) as val
                             FROM invoice_items ii
                             JOIN invoices i ON i.id = ii.invoice_id
-                            {p_clause.replace('partner_id', 'i.partner_id')}
-                        """, p_params).fetchone()["val"]
+                            {invoice_clause.replace('payment_status', 'i.payment_status').replace('partner_id', 'i.partner_id')}
+                        """, invoice_params).fetchone()["val"]
 
                         pending_partners_cnt = 0
                         if user["role"] == "ADMIN":
@@ -853,7 +896,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         })
 
                     elif report_type == "hierarchical":
-                        where_clause = " WHERE 1=1"
+                        where_clause = " WHERE i.payment_status != 'CANCELLED'"
                         params = []
                         if seller_filter:
                             where_clause += " AND i.partner_id = ?"
@@ -1252,48 +1295,60 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     "customer": dict(created_cust)
                 }, status=201)
 
-            # CREATE PRODUCT / BATTERY MODEL
-            elif path == "/api/products":
+            # CREATE PRODUCT / BATTERY MODEL (Admin Master or Seller Custom)
+            elif path == "/api/products" or path == "/api/admin/products":
                 name = body.get("name", "").strip()
                 model_code = body.get("model_code", "").strip().upper()
+                mrp = float(body.get("mrp", 0.0))
                 selling_price = float(body.get("selling_price", 0.0))
-                gst_rate = float(body.get("gst_rate", 18.0))
+                warranty_months = int(body.get("warranty_months", 24))
+                battery_serial_req = 1 if body.get("battery_serial_required", True) in [True, 1, '1', 'true', 'Yes'] else 0
+                status = body.get("status", "ACTIVE").strip().upper()
                 category = body.get("category", "BATTERY").strip().upper()
 
                 if not name:
-                    return self.send_error_json("Please enter the battery product name.", 400)
+                    return self.send_error_json("Please enter product name.", 400)
                 if not model_code:
-                    return self.send_error_json("Please enter the model code (e.g. MS05).", 400)
+                    model_code = f"PROD-{int(time.time()) % 100000}" if user["role"] == "PARTNER" else f"MS-{int(time.time()) % 1000}"
+
                 if selling_price <= 0:
                     return self.send_error_json("Please enter a valid selling price.", 400)
 
                 existing = cursor.execute("SELECT id FROM products WHERE model_code = ?", (model_code,)).fetchone()
                 if existing:
-                    return self.send_error_json(f"Model code '{model_code}' already exists in catalog.", 400)
+                    return self.send_error_json(f"Model/SKU '{model_code}' already exists in catalog.", 400)
 
-                custom_p = user["id"] if user["role"] == "PARTNER" else None
+                if user["role"] in ("ADMIN", "SUPER_ADMIN"):
+                    is_custom = 0
+                    custom_p = None
+                else:
+                    is_custom = 1
+                    custom_p = user["id"]
 
                 cursor.execute("""
-                    INSERT INTO products (name, model_code, category, selling_price, gst_rate, custom_partner_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (name, model_code, category, selling_price, gst_rate, custom_p))
+                    INSERT INTO products (name, model_code, category, mrp, selling_price, warranty_months, battery_serial_required, gst_rate, custom_partner_id, is_custom, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?)
+                """, (name, model_code, category, mrp, selling_price, warranty_months, battery_serial_req, custom_p, is_custom, status))
                 conn.commit()
 
                 new_prod_id = cursor.lastrowid
                 created_prod = cursor.execute("SELECT * FROM products WHERE id = ?", (new_prod_id,)).fetchone()
 
+                msg = f"✓ Master Product '{name}' created for all sellers." if is_custom == 0 else f"✓ Custom product '{name}' added to your catalog."
                 return self.send_json({
-                    "message": "Battery product added to catalog successfully.",
+                    "message": msg,
                     "id": new_prod_id,
                     "product": dict(created_prod)
                 }, status=201)
 
-            # SELLER OTHER PRODUCT / CUSTOM PRODUCT CREATION (Sections 10, 11, 12)
+            # SELLER OTHER PRODUCT / CUSTOM PRODUCT CREATION
             elif path == "/api/products/custom":
                 name = body.get("name", "").strip()
                 selling_price = float(body.get("selling_price", 0.0))
-                gst_rate = float(body.get("gst_rate", 18.0))
+                mrp = float(body.get("mrp", selling_price))
                 model_code = body.get("model_code", "").strip().upper()
+                warranty_months = int(body.get("warranty_months", 24))
+                battery_serial_req = 1 if body.get("battery_serial_required", False) in [True, 1, '1', 'true', 'Yes'] else 0
 
                 if not name:
                     return self.send_error_json("Please enter product name.", 400)
@@ -1304,9 +1359,9 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     model_code = f"CUST-{user['id']}-{int(time.time()) % 100000}"
 
                 cursor.execute("""
-                    INSERT INTO products (name, model_code, category, selling_price, gst_rate, custom_partner_id, is_custom)
-                    VALUES (?, ?, 'OTHER', ?, ?, ?, 1)
-                """, (name, model_code, selling_price, gst_rate, user["id"]))
+                    INSERT INTO products (name, model_code, category, mrp, selling_price, warranty_months, battery_serial_required, gst_rate, custom_partner_id, is_custom, status)
+                    VALUES (?, ?, 'OTHER', ?, ?, ?, ?, 0.0, ?, 1, 'ACTIVE')
+                """, (name, model_code, mrp, selling_price, warranty_months, battery_serial_req, user["id"]))
                 conn.commit()
 
                 new_prod_id = cursor.lastrowid
@@ -1330,10 +1385,21 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
 
                 if not customer_id:
                     return self.send_error_json("Please select a customer.", 400)
-                if amount <= 0:
+                if not math.isfinite(amount) or amount <= 0:
                     return self.send_error_json("Please enter a valid payment amount.", 400)
 
                 partner_id = user["id"] if user["role"] == "PARTNER" else (body.get("partner_id") or user["id"])
+
+                customer = cursor.execute("SELECT partner_id FROM customers WHERE id = ?", (customer_id,)).fetchone()
+                if not customer or customer["partner_id"] != partner_id:
+                    return self.send_error_json("Customer not found or unauthorized.", 403)
+
+                if invoice_id:
+                    invoice = cursor.execute("SELECT partner_id, customer_id, payment_status FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+                    if not invoice or invoice["partner_id"] != partner_id or invoice["customer_id"] != customer_id:
+                        return self.send_error_json("Invoice not found or unauthorized.", 403)
+                    if invoice["payment_status"] == "CANCELLED":
+                        return self.send_error_json("Payments cannot be recorded against a cancelled invoice.", 400)
 
                 cursor.execute("""
                     INSERT INTO payments (partner_id, customer_id, invoice_id, amount, payment_method, reference_no, payment_date, notes)
@@ -1350,9 +1416,9 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 else:
                     unpaid_invs = cursor.execute("""
                         SELECT id, grand_total, paid_amount FROM invoices 
-                        WHERE customer_id = ? AND payment_status != 'PAID' 
+                        WHERE customer_id = ? AND partner_id = ? AND payment_status NOT IN ('PAID', 'CANCELLED')
                         ORDER BY invoice_date ASC, id ASC
-                    """, (customer_id,)).fetchall()
+                    """, (customer_id, partner_id)).fetchall()
 
                     for inv in unpaid_invs:
                         if remaining_payment <= 0:
@@ -1373,7 +1439,7 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 invoice_date = body.get("invoice_date") or datetime.date.today().isoformat()
                 items = body.get("items", [])
                 client_nonce = body.get("client_nonce")
-                payment_mode = body.get("payment_mode", "PAID")
+                payment_mode = body.get("payment_mode", "PAID").upper()
                 payment_method = body.get("payment_method", "CASH").upper()
                 initial_paid_amount = float(body.get("paid_amount", 0.0))
                 notes = body.get("notes", "")
@@ -1382,25 +1448,46 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     return self.send_error_json("Please select a customer.", 400)
                 if not items or len(items) == 0:
                     return self.send_error_json("Please add at least one battery model.", 400)
+                if payment_mode not in ("PAID", "PARTIAL", "CREDIT"):
+                    return self.send_error_json("Please select a valid payment mode.", 400)
+                if not math.isfinite(initial_paid_amount) or initial_paid_amount < 0:
+                    return self.send_error_json("Please enter a valid paid amount.", 400)
+
+                try:
+                    invoice_date = datetime.date.fromisoformat(str(invoice_date)).isoformat()
+                except ValueError:
+                    return self.send_error_json("Please enter a valid invoice date.", 400)
 
                 partner_id = user["id"] if user["role"] == "PARTNER" else (body.get("partner_id") or user["id"])
+
+                customer = cursor.execute("SELECT * FROM customers WHERE id = ? AND partner_id = ?", (customer_id, partner_id)).fetchone()
+                if not customer:
+                    return self.send_error_json("Customer not found or unauthorized.", 403)
 
                 taxable_amount = 0.0
                 discount_amount = 0.0
                 gst_amount = 0.0
                 grand_total = 0.0
                 processed_items = []
+                seen_battery_codes = set()
 
                 for item in items:
                     prod_id = item.get("product_id")
                     prod = cursor.execute("SELECT * FROM products WHERE id = ?", (prod_id,)).fetchone()
                     if not prod:
                         return self.send_error_json("Battery product not found.", 400)
+                    if user["role"] == "PARTNER" and prod["custom_partner_id"] not in (None, partner_id):
+                        return self.send_error_json("This product is not available in your catalog.", 403)
 
                     qty = int(item.get("quantity", 1))
                     unit_price = float(item.get("unit_price", prod["selling_price"]))
                     disc = float(item.get("discount", 0.0))
-                    gst_rate = float(item.get("gst_rate", prod["gst_rate"]))
+                    if qty < 1:
+                        return self.send_error_json("Quantity must be at least 1.", 400)
+                    if not math.isfinite(unit_price) or unit_price <= 0:
+                        return self.send_error_json("Please enter a valid unit price.", 400)
+                    if not math.isfinite(disc) or disc < 0 or disc > unit_price * qty:
+                        return self.send_error_json("Please enter a valid discount.", 400)
 
                     line_base = (unit_price * qty) - disc
                     line_gst = 0.0
@@ -1412,6 +1499,15 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     grand_total += line_total
 
                     b_code_norm = normalize_battery_code(item.get("battery_code", ""))
+                    if b_code_norm:
+                        if qty != 1:
+                            return self.send_error_json("A scanned battery serial can only be billed with quantity 1.", 400)
+                        if b_code_norm in seen_battery_codes:
+                            return self.send_error_json("The same battery serial cannot appear twice on one bill.", 400)
+                        already_billed = cursor.execute("SELECT invoice_id FROM scanned_batteries WHERE battery_code = ?", (b_code_norm,)).fetchone()
+                        if already_billed:
+                            return self.send_error_json("This battery serial has already been billed.", 400)
+                        seen_battery_codes.add(b_code_norm)
 
                     processed_items.append({
                         "product_id": prod["id"],
@@ -1443,7 +1539,9 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     actual_paid = 0.0
                     pay_status = 'UNPAID'
                 else:
-                    actual_paid = min(round(grand_total, 2), round(initial_paid_amount, 2))
+                    if initial_paid_amount > grand_total:
+                        return self.send_error_json("Paid amount cannot be greater than the bill total.", 400)
+                    actual_paid = round(initial_paid_amount, 2)
                     pay_status = 'PAID' if actual_paid >= round(grand_total, 2) else ('PARTIALLY_PAID' if actual_paid > 0 else 'UNPAID')
 
                 cursor.execute("""
@@ -1534,6 +1632,29 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     SET payment_status = 'CANCELLED', cancellation_reason = ?, cancelled_by = ?, cancelled_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """, (reason, user["id"], inv_id))
+
+                cursor.execute("""
+                    UPDATE reward_transactions
+                    SET status = 'REVERSED'
+                    WHERE source_invoice_id = ? AND status = 'AVAILABLE'
+                """, (inv_id,))
+
+                # A cancelled bill must not keep the serial locked or leave its
+                # automatically-created warranty active. The original invoice
+                # remains in the audit trail, while the battery can be billed
+                # again on a corrected invoice.
+                billed_serials = cursor.execute("SELECT battery_code FROM scanned_batteries WHERE invoice_id = ?", (inv_id,)).fetchall()
+                for serial_row in billed_serials:
+                    serial = serial_row["battery_code"]
+                    warranty = cursor.execute("SELECT id FROM warranty_registrations WHERE battery_code = ?", (serial,)).fetchone()
+                    if warranty:
+                        cancelled_marker = f"CANCELLED_INV_{inv_id}_{warranty['id']}_{serial}"
+                        cursor.execute("""
+                            UPDATE warranty_registrations
+                            SET status = 'CANCELLED', battery_code = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        """, (cancelled_marker, warranty["id"]))
+                cursor.execute("DELETE FROM scanned_batteries WHERE invoice_id = ?", (inv_id,))
 
                 log_audit_entry(conn, user["id"], "INVOICE_CANCELLED", "invoices", inv_id, inv["payment_status"], "CANCELLED", reason)
                 conn.commit()
@@ -1643,35 +1764,48 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 updated_cust = cursor.execute("SELECT * FROM customers WHERE id = ?", (cust_id,)).fetchone()
                 return self.send_json({"message": "✓ Customer updated successfully.", "customer": dict(updated_cust)})
 
-            # ADMIN EDIT / UPDATE BATTERY PRODUCT
-            elif path.startswith("/api/admin/products/"):
-                if user["role"] != "ADMIN":
-                    return self.send_error_json("Forbidden: Admin access required", 403)
-                
+            # EDIT / UPDATE BATTERY OR CUSTOM PRODUCT
+            elif path.startswith("/api/admin/products/") or path.startswith("/api/products/"):
                 prod_id = path.split("/")[-1]
                 prod_row = cursor.execute("SELECT * FROM products WHERE id = ?", (prod_id,)).fetchone()
                 if not prod_row:
                     return self.send_error_json("Product not found.", 404)
                 prod = dict(prod_row)
 
+                # Strictly enforce Seller authorization rules
+                if user["role"] == "PARTNER":
+                    if prod["is_custom"] == 0 or prod["custom_partner_id"] is None:
+                        return self.send_error_json("Forbidden: Sellers cannot edit or deactivate Admin Master Products.", 403)
+                    if prod["custom_partner_id"] != user["id"]:
+                        return self.send_error_json("Forbidden: Access denied to this product.", 403)
+
                 name = body.get("name", prod["name"]).strip()
                 model_code = body.get("model_code", prod["model_code"]).strip().upper()
+                category = body.get("category", prod.get("category", "BATTERY")).strip().upper()
+                mrp = float(body.get("mrp", prod.get("mrp", 0.0)))
                 selling_price = float(body.get("selling_price", prod["selling_price"]))
-                gst_rate = float(body.get("gst_rate", prod["gst_rate"]))
+                warranty_months = int(body.get("warranty_months", prod.get("warranty_months", 24)))
+                battery_serial_req = 1 if body.get("battery_serial_required", prod.get("battery_serial_required", 1)) in [True, 1, '1', 'true', 'Yes'] else 0
                 status = body.get("status", prod.get("status", "ACTIVE")).strip().upper()
 
                 if not name or not model_code:
                     return self.send_error_json("Product name and model code are required.", 400)
 
+                # Check model_code uniqueness if changed
+                if model_code != prod["model_code"]:
+                    existing = cursor.execute("SELECT id FROM products WHERE model_code = ? AND id != ?", (model_code, prod_id)).fetchone()
+                    if existing:
+                        return self.send_error_json(f"Model/SKU '{model_code}' is already used by another product.", 400)
+
                 cursor.execute("""
                     UPDATE products 
-                    SET name = ?, model_code = ?, selling_price = ?, gst_rate = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                    SET name = ?, model_code = ?, category = ?, mrp = ?, selling_price = ?, warranty_months = ?, battery_serial_required = ?, gst_rate = 0.0, status = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (name, model_code, selling_price, gst_rate, status, prod_id))
+                """, (name, model_code, category, mrp, selling_price, warranty_months, battery_serial_req, status, prod_id))
                 conn.commit()
 
                 updated_prod = cursor.execute("SELECT * FROM products WHERE id = ?", (prod_id,)).fetchone()
-                return self.send_json({"message": f"✓ Battery model '{name}' updated successfully.", "product": dict(updated_prod)})
+                return self.send_json({"message": f"✓ Product '{name}' updated successfully.", "product": dict(updated_prod)})
 
             # FULL USER PROFILE EDIT
             elif path == "/api/profile":
@@ -1792,19 +1926,30 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     conn.commit()
                     return self.send_json({"message": "✓ Customer deleted successfully.", "deleted": True})
 
-            # DELETE / DISABLE PRODUCT (Admin only)
-            elif path.startswith("/api/admin/products/"):
-                if user["role"] != "ADMIN":
-                    return self.send_error_json("Forbidden: Admin access required", 403)
-                
+            # DELETE / DISABLE PRODUCT (Admin Master or Seller Custom)
+            elif path.startswith("/api/admin/products/") or path.startswith("/api/products/"):
                 prod_id = path.split("/")[-1]
                 prod = cursor.execute("SELECT * FROM products WHERE id = ?", (prod_id,)).fetchone()
                 if not prod:
                     return self.send_error_json("Product not found.", 404)
 
-                cursor.execute("UPDATE products SET status = 'INACTIVE', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (prod_id,))
-                conn.commit()
-                return self.send_json({"message": f"Product '{prod['name']}' disabled successfully."})
+                # Authorize Seller
+                if user["role"] == "PARTNER":
+                    if prod["is_custom"] == 0 or prod["custom_partner_id"] is None:
+                        return self.send_error_json("Forbidden: Sellers cannot delete or deactivate Admin Master Products.", 403)
+                    if prod["custom_partner_id"] != user["id"]:
+                        return self.send_error_json("Forbidden: Access denied.", 403)
+
+                # Check if referenced in historical invoices
+                has_invoices = cursor.execute("SELECT id FROM invoice_items WHERE product_id = ?", (prod_id,)).fetchone()
+                if has_invoices:
+                    cursor.execute("UPDATE products SET status = 'INACTIVE', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (prod_id,))
+                    conn.commit()
+                    return self.send_json({"message": f"✓ Product '{prod['name']}' set to INACTIVE. Historical invoices preserved.", "status": "INACTIVE"})
+                else:
+                    cursor.execute("DELETE FROM products WHERE id = ?", (prod_id,))
+                    conn.commit()
+                    return self.send_json({"message": f"✓ Product '{prod['name']}' removed from catalog.", "deleted": True})
 
             else:
                 return self.send_error_json("Not Found", 404)

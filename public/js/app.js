@@ -26,6 +26,7 @@ const tabTitlesMap = {
   'rewards': 'Referral & Rewards',
   'profile': 'Account Profile & Settings',
   'sellers': 'Partner Approvals & List',
+  'admin-products': 'Master Product Catalogue',
   'admin-warranties': 'Admin Warranty Queue',
   'admin-search': 'Admin Global Search'
 };
@@ -144,12 +145,14 @@ function showAuthenticatedUI() {
 
   if (currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'SUPER_ADMIN')) {
     if (document.getElementById('drawer-admin-sellers-btn')) document.getElementById('drawer-admin-sellers-btn').style.display = 'block';
+    if (document.getElementById('drawer-admin-products-btn')) document.getElementById('drawer-admin-products-btn').style.display = 'block';
     if (document.getElementById('drawer-admin-warranties-btn')) document.getElementById('drawer-admin-warranties-btn').style.display = 'block';
     if (document.getElementById('drawer-admin-search-btn')) document.getElementById('drawer-admin-search-btn').style.display = 'block';
     if (document.getElementById('drawer-admin-audit-btn')) document.getElementById('drawer-admin-audit-btn').style.display = 'block';
     if (document.getElementById('drawer-admin-backup-btn')) document.getElementById('drawer-admin-backup-btn').style.display = 'block';
   } else {
     if (document.getElementById('drawer-admin-sellers-btn')) document.getElementById('drawer-admin-sellers-btn').style.display = 'none';
+    if (document.getElementById('drawer-admin-products-btn')) document.getElementById('drawer-admin-products-btn').style.display = 'none';
     if (document.getElementById('drawer-admin-warranties-btn')) document.getElementById('drawer-admin-warranties-btn').style.display = 'none';
     if (document.getElementById('drawer-admin-search-btn')) document.getElementById('drawer-admin-search-btn').style.display = 'none';
     if (document.getElementById('drawer-admin-audit-btn')) document.getElementById('drawer-admin-audit-btn').style.display = 'none';
@@ -221,6 +224,9 @@ function switchTab(tabId) {
   } else if (tabId === 'sellers') {
     showView('view-admin-sellers');
     loadAdminSellersList();
+  } else if (tabId === 'admin-products') {
+    showView('view-admin-products');
+    loadAdminMasterProducts();
   } else if (tabId === 'admin-warranties') {
     showView('view-admin-warranties');
     loadAdminWarrantiesQueue();
@@ -464,11 +470,14 @@ async function loadDashboardStats() {
 }
 
 // NEW BILL WORKFLOW
-async function initNewBillWorkflow() {
-  currentInvoiceDraft = { customer_id: null, items: [], payment_mode: 'PAID', payment_method: 'CASH', paid_amount: 0 };
+async function initNewBillWorkflow(resetDraft = true) {
+  if (resetDraft) {
+    currentInvoiceDraft = { customer_id: null, items: [], payment_mode: 'PAID', payment_method: 'CASH', paid_amount: 0 };
+  }
   renderBillItemsTable();
 
   const custSelect = document.getElementById('bill-customer-select');
+  const selectedCustomerId = currentInvoiceDraft.customer_id;
   custSelect.innerHTML = '<option value="">-- Choose Customer --</option>';
   try {
     const customers = await apiRequest('/api/customers');
@@ -478,18 +487,42 @@ async function initNewBillWorkflow() {
       opt.textContent = `${c.name} (${c.mobile}) - ${c.shop_name || 'Individual'}`;
       custSelect.appendChild(opt);
     });
+    if (selectedCustomerId) custSelect.value = String(selectedCustomerId);
   } catch (err) { console.log(err); }
 
   const prodSelect = document.getElementById('bill-product-select');
-  prodSelect.innerHTML = '<option value="">-- Select Battery --</option>';
+  const selectedProductId = resetDraft ? '' : prodSelect.value;
+  prodSelect.innerHTML = '<option value="">-- Select Product --</option>';
   try {
     const products = await apiRequest('/api/products');
-    products.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = `${p.model_code} - ${p.name}`;
-      prodSelect.appendChild(opt);
-    });
+    const masterProds = products.filter(p => p.is_custom === 0 || !p.custom_partner_id);
+    const customProds = products.filter(p => p.is_custom === 1 && p.custom_partner_id);
+
+    if (masterProds.length > 0) {
+      const gMaster = document.createElement('optgroup');
+      gMaster.label = 'MECHSHAKTI MASTER PRODUCTS';
+      masterProds.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.model_code} - ${p.name} (₹${p.selling_price})`;
+        gMaster.appendChild(opt);
+      });
+      prodSelect.appendChild(gMaster);
+    }
+
+    if (customProds.length > 0) {
+      const gCustom = document.createElement('optgroup');
+      gCustom.label = 'MY CUSTOM PRODUCTS';
+      customProds.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.model_code} - ${p.name} (₹${p.selling_price})`;
+        gCustom.appendChild(opt);
+      });
+      prodSelect.appendChild(gCustom);
+    }
+
+    if (selectedProductId) prodSelect.value = selectedProductId;
   } catch (err) { console.log(err); }
 }
 
@@ -528,19 +561,21 @@ document.getElementById('form-other-product')?.addEventListener('submit', async 
   const name = document.getElementById('other-prod-name').value.trim();
   const price = parseFloat(document.getElementById('other-prod-price').value || '0');
   const qty = parseInt(document.getElementById('other-prod-qty').value || '1');
-  const gst = parseFloat(document.getElementById('other-prod-gst').value || '18');
   const btn = e.target.querySelector('button[type="submit"]');
+
+  if (!Number.isFinite(price) || price <= 0) return alert('Please enter a valid selling rate.');
+  if (!Number.isInteger(qty) || qty < 1) return alert('Quantity must be at least 1.');
 
   await withLoadingState(btn, async () => {
     try {
       const res = await apiRequest('/api/products/custom', 'POST', {
-        name, selling_price: price, gst_rate: gst
+        name, selling_price: price
       });
       closeOtherProductModal();
       alert(res.message);
 
       const p = res.product;
-      const line_base = (p.selling_price * qty);
+      const line_base = Number((p.selling_price * qty).toFixed(2));
       
       const item = {
         product_id: p.id,
@@ -555,7 +590,16 @@ document.getElementById('form-other-product')?.addEventListener('submit', async 
 
       currentInvoiceDraft.items.push(item);
       renderBillItemsTable();
-      initNewBillWorkflow();
+
+      const prodSelect = document.getElementById('bill-product-select');
+      if (prodSelect) {
+        const option = document.createElement('option');
+        option.value = p.id;
+        option.textContent = `${p.model_code} - ${p.name}`;
+        prodSelect.appendChild(option);
+        prodSelect.value = p.id;
+        onBillProductSelected();
+      }
     } catch (err) { alert(err.message); }
   });
 });
@@ -568,7 +612,8 @@ function addBillItem() {
   const scannedText = document.getElementById('bill-scanned-code-text').textContent;
 
   if (!prodId) return alert('Please select a battery model.');
-  if (rate <= 0) return alert('Please enter a valid rate.');
+  if (!Number.isFinite(rate) || rate <= 0) return alert('Please enter a valid rate.');
+  if (!Number.isInteger(qty) || qty < 1) return alert('Quantity must be at least 1.');
 
   const optText = prodSelect.options[prodSelect.selectedIndex].text;
   const item = {
@@ -579,7 +624,7 @@ function addBillItem() {
     battery_code: scannedText || null,
     discount: 0,
     gst_rate: 0,
-    total: rate * qty
+    total: Number((rate * qty).toFixed(2))
   };
 
   currentInvoiceDraft.items.push(item);
@@ -610,12 +655,12 @@ function renderBillItemsTable() {
         <td>${it.product_label} ${it.battery_code ? `<br><small style="color:var(--mech-orange); font-family:monospace;">${it.battery_code}</small>` : ''}</td>
         <td>₹${it.unit_price}</td>
         <td>${it.quantity}</td>
-        <td>₹${Math.round(it.total)}</td>
+        <td>₹${it.total.toFixed(2)}</td>
         <td><button class="btn btn-secondary btn-sm" onclick="removeBillItem(${idx})">✕</button></td>
       </tr>
     `;
   });
-  html += `</tbody></table><div style="text-align:right; font-weight:700; font-size:1.05rem; margin-top:8px;">Grand Total: ₹${Math.round(grand)}</div>`;
+  html += `</tbody></table><div style="text-align:right; font-weight:700; font-size:1.05rem; margin-top:8px;">Grand Total: ₹${grand.toFixed(2)}</div>`;
   container.innerHTML = html;
 }
 
@@ -1337,7 +1382,7 @@ async function loadInvoicesList() {
           </div>
           <div style="text-align:right;">
             <div style="font-weight:700;">₹${inv.grand_total}</div>
-            <span class="badge ${inv.payment_status === 'PAID' ? 'badge-active' : 'badge-pending'}">${inv.payment_status}</span>
+            <span class="badge ${inv.payment_status === 'PAID' ? 'badge-active' : (inv.payment_status === 'CANCELLED' ? 'badge-rejected' : 'badge-pending')}">${inv.payment_status}</span>
           </div>
         </div>
       </div>
@@ -1518,11 +1563,12 @@ document.getElementById('form-customer')?.addEventListener('submit', async (e) =
 
   await withLoadingState(btn, async () => {
     try {
-      await apiRequest('/api/customers', 'POST', { name, mobile, shop_name, city });
+      const res = await apiRequest('/api/customers', 'POST', { name, mobile, shop_name, city });
       closeCustomerModal();
       alert('✓ Customer added successfully!');
       if (document.getElementById('view-new-invoice').style.display !== 'none') {
-        initNewBillWorkflow();
+        currentInvoiceDraft.customer_id = res.id;
+        initNewBillWorkflow(false);
       } else {
         loadCustomersList();
       }
@@ -1530,75 +1576,170 @@ document.getElementById('form-customer')?.addEventListener('submit', async (e) =
   });
 });
 
+async function loadAdminMasterProducts() {
+  const searchQ = document.getElementById('admin-prod-search')?.value.trim() || '';
+  const statusF = document.getElementById('admin-prod-status-filter')?.value || 'ALL';
+  const container = document.getElementById('admin-products-table-container');
+
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">Loading product catalogue...</div>';
+
+  try {
+    const query = new URLSearchParams({ q: searchQ, status: statusF }).toString();
+    const products = await apiRequest(`/api/admin/products?${query}`);
+
+    if (products.length === 0) {
+      container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);">No products found matching filters.</div>';
+      return;
+    }
+
+    const rows = products.map((p) => `
+      <tr>
+        <td style="font-weight:700;">${p.model_code}</td>
+        <td>
+          <strong>${p.name}</strong>
+          ${p.warranty_months ? `<br><small style="color:var(--text-muted);">${p.warranty_months} Months Warranty</small>` : ''}
+        </td>
+        <td><span class="badge" style="background:var(--bg-secondary);">${p.category || 'BATTERY'}</span></td>
+        <td>₹${(p.mrp || 0).toFixed(2)}</td>
+        <td style="font-weight:700; color:var(--mech-orange);">₹${p.selling_price.toFixed(2)}</td>
+        <td>${p.battery_serial_required ? 'YES' : 'NO'}</td>
+        <td>
+          ${p.is_custom === 1 ? '<span class="badge" style="background:#8b5cf6; color:#fff;">CUSTOM</span>' : '<span class="badge" style="background:#0284c7; color:#fff;">ADMIN MASTER</span>'}
+        </td>
+        <td>
+          <span class="status-badge status-${p.status === 'ACTIVE' ? 'active' : 'suspended'}">${p.status || 'ACTIVE'}</span>
+        </td>
+        <td>
+          <div style="display:flex; gap:4px;">
+            <button class="btn btn-secondary btn-sm" onclick="openEditProductModal('${p.id}', '${p.name.replace(/'/g, "\\'")}', '${p.model_code.replace(/'/g, "\\'")}', '${p.category || 'BATTERY'}', ${p.mrp || 0}, ${p.selling_price}, ${p.warranty_months || 24}, ${p.battery_serial_required ? 1 : 0}, '${p.status || 'ACTIVE'}')">✏️ Edit</button>
+            <button class="btn ${p.status === 'ACTIVE' ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick="toggleProductStatus('${p.id}', '${p.status || 'ACTIVE'}')">
+              ${p.status === 'ACTIVE' ? '🚫 Deactivate' : '🟢 Activate'}
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+
+    container.innerHTML = `
+      <table class="table" style="font-size:0.85rem;">
+        <thead>
+          <tr>
+            <th>Model/SKU</th>
+            <th>Product Name</th>
+            <th>Category</th>
+            <th>MRP</th>
+            <th>Selling Price</th>
+            <th>Serial Req</th>
+            <th>Scope</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+  } catch (err) {
+    container.innerHTML = `<div style="color:var(--status-rejected-text); text-align:center; padding:20px;">Error: ${err.message}</div>`;
+  }
+}
+
+function openAddMasterProductModal() {
+  document.getElementById('prod-name').value = '';
+  document.getElementById('prod-code').value = '';
+  document.getElementById('prod-category').value = 'BATTERY';
+  document.getElementById('prod-mrp').value = '0.00';
+  document.getElementById('prod-price').value = '';
+  document.getElementById('prod-warranty').value = '24';
+  document.getElementById('prod-serial-req').checked = true;
+  document.getElementById('prod-status').value = 'ACTIVE';
+  document.getElementById('modal-product').style.display = 'flex';
+}
+function closeProductModal() { document.getElementById('modal-product').style.display = 'none'; }
+
 document.getElementById('form-product')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const name = document.getElementById('prod-name').value;
-  const model_code = document.getElementById('prod-code').value;
+  const name = document.getElementById('prod-name').value.trim();
+  const model_code = document.getElementById('prod-code').value.trim();
+  const category = document.getElementById('prod-category').value;
+  const mrp = parseFloat(document.getElementById('prod-mrp').value || '0');
   const selling_price = parseFloat(document.getElementById('prod-price').value);
+  const warranty_months = parseInt(document.getElementById('prod-warranty').value || '24');
+  const battery_serial_required = document.getElementById('prod-serial-req').checked;
+  const status = document.getElementById('prod-status').value;
   const btn = e.target.querySelector('button[type="submit"]');
 
   await withLoadingState(btn, async () => {
     try {
-      await apiRequest('/api/products', 'POST', { name, model_code, selling_price });
+      const res = await apiRequest('/api/products', 'POST', {
+        name, model_code, category, mrp, selling_price, warranty_months, battery_serial_required, status
+      });
       closeProductModal();
-      alert('✓ Battery model added successfully!');
-      if (document.getElementById('view-new-invoice').style.display !== 'none') {
-        initNewBillWorkflow();
+      alert(res.message);
+      if (document.getElementById('view-admin-products')?.style.display !== 'none') {
+        loadAdminMasterProducts();
+      }
+      if (document.getElementById('view-new-invoice')?.style.display !== 'none') {
+        initNewBillWorkflow(false);
       }
     } catch (err) { alert(err.message); }
   });
 });
 
-function openEditProductModal(prodId, name, code, price, gst, status) {
-  document.getElementById('edit-prod-id').value = prodId;
+function openEditProductModal(id, name, code, category, mrp, price, warranty, serialReq, status) {
+  document.getElementById('edit-prod-id').value = id;
   document.getElementById('edit-prod-name').value = name || '';
   document.getElementById('edit-prod-code').value = code || '';
+  document.getElementById('edit-prod-category').value = category || 'BATTERY';
+  document.getElementById('edit-prod-mrp').value = mrp || 0;
   document.getElementById('edit-prod-price').value = price || '';
-  document.getElementById('edit-prod-gst').value = gst || 18;
+  document.getElementById('edit-prod-warranty').value = warranty || 24;
+  document.getElementById('edit-prod-serial-req').checked = (serialReq == 1);
   document.getElementById('edit-prod-status').value = status || 'ACTIVE';
   document.getElementById('modal-edit-product').style.display = 'flex';
 }
 function closeEditProductModal() { document.getElementById('modal-edit-product').style.display = 'none'; }
-
-function openEditPartnerModal(sellerId) {
-  apiRequest('/api/admin/sellers?status=ALL').then(data => {
-    const s = (data.sellers || []).find(item => item.id == sellerId);
-    if (!s) return alert('Partner account not found');
-
-    document.getElementById('edit-partner-id').value = s.id;
-    document.getElementById('edit-partner-name').value = s.name || '';
-    document.getElementById('edit-partner-phone').value = s.phone || '';
-    document.getElementById('edit-partner-shop').value = s.shop_name || '';
-    document.getElementById('edit-partner-city').value = s.city || '';
-    document.getElementById('edit-partner-address').value = s.address || '';
-    document.getElementById('edit-partner-upi').value = s.upi_id || '';
-    document.getElementById('edit-partner-status').value = s.status || 'ACTIVE';
-    document.getElementById('modal-edit-partner-profile').style.display = 'flex';
-  }).catch(err => alert(err.message));
-}
-function closeEditPartnerModal() { document.getElementById('modal-edit-partner-profile').style.display = 'none'; }
 
 document.getElementById('form-edit-product')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const prodId = document.getElementById('edit-prod-id').value;
   const name = document.getElementById('edit-prod-name').value.trim();
   const model_code = document.getElementById('edit-prod-code').value.trim();
+  const category = document.getElementById('edit-prod-category').value;
+  const mrp = parseFloat(document.getElementById('edit-prod-mrp').value || '0');
   const selling_price = parseFloat(document.getElementById('edit-prod-price').value);
-  const gst_rate = parseFloat(document.getElementById('edit-prod-gst').value);
+  const warranty_months = parseInt(document.getElementById('edit-prod-warranty').value || '24');
+  const battery_serial_required = document.getElementById('edit-prod-serial-req').checked;
   const status = document.getElementById('edit-prod-status').value;
   const btn = e.target.querySelector('button[type="submit"]');
 
   await withLoadingState(btn, async () => {
     try {
-      await apiRequest(`/api/admin/products/${prodId}`, 'PUT', { name, model_code, selling_price, gst_rate, status });
+      const res = await apiRequest(`/api/admin/products/${prodId}`, 'PUT', {
+        name, model_code, category, mrp, selling_price, warranty_months, battery_serial_required, status
+      });
       closeEditProductModal();
-      alert('✓ Battery model updated successfully!');
-      if (document.getElementById('view-new-invoice').style.display !== 'none') {
-        initNewBillWorkflow();
+      alert(res.message);
+      if (document.getElementById('view-admin-products')?.style.display !== 'none') {
+        loadAdminMasterProducts();
+      }
+      if (document.getElementById('view-new-invoice')?.style.display !== 'none') {
+        initNewBillWorkflow(false);
       }
     } catch (err) { alert(err.message); }
   });
 });
+
+async function toggleProductStatus(id, currentStatus) {
+  const newStatus = currentStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+  if (!confirm(`Are you sure you want to change this product status to ${newStatus}?`)) return;
+
+  try {
+    const res = await apiRequest(`/api/admin/products/${id}`, 'PUT', { status: newStatus });
+    alert(res.message);
+    loadAdminMasterProducts();
+  } catch (err) { alert(err.message); }
+}
 
 document.getElementById('form-edit-partner-profile')?.addEventListener('submit', async (e) => {
   e.preventDefault();

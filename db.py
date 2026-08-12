@@ -102,15 +102,18 @@ def init_db():
     if 'is_archived' not in cust_cols:
         cursor.execute("ALTER TABLE customers ADD COLUMN is_archived INTEGER DEFAULT 0;")
 
-    # 3. Products table (Battery master)
+    # 3. Products table (Battery master & custom products)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         model_code TEXT UNIQUE NOT NULL,
         category TEXT DEFAULT 'BATTERY',
+        mrp REAL DEFAULT 0.0,
         selling_price REAL NOT NULL,
-        gst_rate REAL DEFAULT 18.0,
+        warranty_months INTEGER DEFAULT 24,
+        battery_serial_required INTEGER DEFAULT 1,
+        gst_rate REAL DEFAULT 0.0,
         custom_partner_id INTEGER,
         is_custom INTEGER DEFAULT 0,
         status TEXT DEFAULT 'ACTIVE',
@@ -125,6 +128,12 @@ def init_db():
         cursor.execute("ALTER TABLE products ADD COLUMN custom_partner_id INTEGER;")
     if 'is_custom' not in prod_cols:
         cursor.execute("ALTER TABLE products ADD COLUMN is_custom INTEGER DEFAULT 0;")
+    if 'mrp' not in prod_cols:
+        cursor.execute("ALTER TABLE products ADD COLUMN mrp REAL DEFAULT 0.0;")
+    if 'warranty_months' not in prod_cols:
+        cursor.execute("ALTER TABLE products ADD COLUMN warranty_months INTEGER DEFAULT 24;")
+    if 'battery_serial_required' not in prod_cols:
+        cursor.execute("ALTER TABLE products ADD COLUMN battery_serial_required INTEGER DEFAULT 1;")
 
     # 4. Invoices header table
     cursor.execute("""

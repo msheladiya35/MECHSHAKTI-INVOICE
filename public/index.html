@@ -76,6 +76,7 @@
       <button onclick="switchTab('rewards'); toggleNavDrawer();">🎁 Referral & Rewards</button>
       <button onclick="switchTab('profile'); toggleNavDrawer();">👤 Profile & UPI Settings</button>
       <button id="drawer-admin-sellers-btn" onclick="switchTab('sellers'); toggleNavDrawer();" style="display: none;">📋 Partner Approvals & List</button>
+      <button id="drawer-admin-products-btn" onclick="switchTab('admin-products'); toggleNavDrawer();" style="display: none;">📦 Master Product Catalogue</button>
       <button id="drawer-admin-warranties-btn" onclick="switchTab('admin-warranties'); toggleNavDrawer();" style="display: none;">🛡️ Admin Warranty Queue</button>
       <button id="drawer-admin-search-btn" onclick="switchTab('admin-search'); toggleNavDrawer();" style="display: none;">🔍 Admin Global Search</button>
       <button id="drawer-admin-audit-btn" onclick="switchTab('admin-audit'); toggleNavDrawer();" style="display: none;">📜 Admin Audit Logs</button>
@@ -303,7 +304,7 @@
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
           <div class="form-group">
-            <label class="form-label">Rate (₹) <span id="rate-auto-badge" style="font-size: 0.75rem; color: var(--mech-orange);"></span></label>
+            <label class="form-label">Final Rate (₹) <span id="rate-auto-badge" style="font-size: 0.75rem; color: var(--mech-orange);"></span></label>
             <input type="number" id="bill-rate-input" class="form-control" step="0.01" value="0">
           </div>
           <div class="form-group">
@@ -538,8 +539,29 @@
           <button class="btn btn-primary" onclick="loadAdminAuditLogs()">Filter</button>
         </div>
 
-        <div id="admin-audit-logs-container" style="overflow-x: auto;">
-          <div style="text-align: center; color: var(--text-muted);">Click Refresh to load security logs.</div>
+    <!-- 14. ADMIN MASTER PRODUCT CATALOGUE VIEW -->
+    <section id="view-admin-products" class="view" style="display: none;">
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <h2 style="color: var(--mech-orange); font-size: 1.3rem; margin: 0;">📦 Admin Master Product Catalogue</h2>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">Manage central master products (available to all sellers) and custom seller products</div>
+          </div>
+          <button class="btn btn-primary" onclick="openAddMasterProductModal()">➕ Add New Master Product</button>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+          <input type="text" id="admin-prod-search" class="form-control" placeholder="Search Product Name or Model/SKU..." onkeyup="if(event.key==='Enter') loadAdminMasterProducts()">
+          <select id="admin-prod-status-filter" class="form-control" onchange="loadAdminMasterProducts()">
+            <option value="ALL">All Statuses</option>
+            <option value="ACTIVE" selected>ACTIVE Only</option>
+            <option value="INACTIVE">INACTIVE Only</option>
+          </select>
+          <button class="btn btn-secondary" onclick="loadAdminMasterProducts()">Filter</button>
+        </div>
+
+        <div id="admin-products-table-container" style="overflow-x: auto;">
+          <div style="text-align: center; color: var(--text-muted); padding: 20px;">Click Filter or Refresh to load product catalogue.</div>
         </div>
       </div>
     </section>
@@ -640,62 +662,123 @@
     </div>
   </div>
 
-  <!-- Add Product Modal -->
+  <!-- Add Master Product Modal (Admin) -->
   <div id="modal-product" class="modal" style="display: none;">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width: 520px;">
       <div class="modal-header">
-        <h3>+ Add Battery Model</h3>
+        <h3>📦 Add Master Product</h3>
         <button class="btn-close" onclick="closeProductModal()">✕</button>
       </div>
       <form id="form-product">
         <div class="form-group">
-          <label class="form-label">Battery Name *</label>
-          <input type="text" id="prod-name" class="form-control" required>
+          <label class="form-label">Product Name *</label>
+          <input type="text" id="prod-name" class="form-control" placeholder="e.g. Mechshakti MSX7" required>
         </div>
-        <div class="form-group">
-          <label class="form-label">Model Code (e.g. MS05) *</label>
-          <input type="text" id="prod-code" class="form-control" required>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Model / SKU *</label>
+            <input type="text" id="prod-code" class="form-control" placeholder="e.g. MSX7" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <select id="prod-category" class="form-control">
+              <option value="BATTERY" selected>BATTERY</option>
+              <option value="ACCESSORY">ACCESSORY</option>
+              <option value="SERVICE">SERVICE</option>
+              <option value="OTHER">OTHER</option>
+            </select>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Selling Price (₹) *</label>
-          <input type="number" id="prod-price" class="form-control" step="0.01" required>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">MRP (₹)</label>
+            <input type="number" id="prod-mrp" class="form-control" step="0.01" value="0.00">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Selling Price (₹) *</label>
+            <input type="number" id="prod-price" class="form-control" step="0.01" required>
+          </div>
         </div>
-        <button type="submit" class="btn btn-primary btn-block">SAVE BATTERY</button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Warranty (Months)</label>
+            <input type="number" id="prod-warranty" class="form-control" value="24">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select id="prod-status" class="form-control">
+              <option value="ACTIVE" selected>ACTIVE</option>
+              <option value="INACTIVE">INACTIVE</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top: 4px;">
+          <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer;">
+            <input type="checkbox" id="prod-serial-req" checked>
+            Require Battery Serial Scan / Entry for Warranty Activation
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">SAVE MASTER PRODUCT</button>
       </form>
     </div>
   </div>
 
-  <!-- Edit Product Modal (Admin) -->
+  <!-- Edit Product Modal (Admin / Seller Custom) -->
   <div id="modal-edit-product" class="modal" style="display: none;">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width: 520px;">
       <div class="modal-header">
-        <h3>✏️ Edit Battery Model</h3>
+        <h3>✏️ Edit Product Details</h3>
         <button class="btn-close" onclick="closeEditProductModal()">✕</button>
       </div>
       <form id="form-edit-product">
         <input type="hidden" id="edit-prod-id">
         <div class="form-group">
-          <label class="form-label">Battery Name *</label>
+          <label class="form-label">Product Name *</label>
           <input type="text" id="edit-prod-name" class="form-control" required>
         </div>
-        <div class="form-group">
-          <label class="form-label">Model Code (e.g. MS05) *</label>
-          <input type="text" id="edit-prod-code" class="form-control" required>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Model / SKU *</label>
+            <input type="text" id="edit-prod-code" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <select id="edit-prod-category" class="form-control">
+              <option value="BATTERY">BATTERY</option>
+              <option value="ACCESSORY">ACCESSORY</option>
+              <option value="SERVICE">SERVICE</option>
+              <option value="OTHER">OTHER</option>
+            </select>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Selling Price (₹) *</label>
-          <input type="number" id="edit-prod-price" class="form-control" step="0.01" required>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">MRP (₹)</label>
+            <input type="number" id="edit-prod-mrp" class="form-control" step="0.01">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Selling Price (₹) *</label>
+            <input type="number" id="edit-prod-price" class="form-control" step="0.01" required>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">GST Rate (%)</label>
-          <input type="number" id="edit-prod-gst" class="form-control" value="18">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Warranty (Months)</label>
+            <input type="number" id="edit-prod-warranty" class="form-control">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select id="edit-prod-status" class="form-control">
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="INACTIVE">INACTIVE / DISABLED</option>
+            </select>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Status</label>
-          <select id="edit-prod-status" class="form-control">
-            <option value="ACTIVE">ACTIVE</option>
-            <option value="INACTIVE">INACTIVE / DISABLED</option>
-          </select>
+        <div class="form-group" style="margin-top: 4px;">
+          <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer;">
+            <input type="checkbox" id="edit-prod-serial-req">
+            Require Battery Serial Scan / Entry for Warranty Activation
+          </label>
         </div>
         <button type="submit" class="btn btn-primary btn-block">SAVE PRODUCT CHANGES</button>
       </form>
@@ -888,18 +971,15 @@
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
           <div class="form-group">
-            <label class="form-label">Selling Rate (₹) *</label>
-            <input type="number" id="other-prod-price" class="form-control" step="0.01" value="0" required>
+          <label class="form-label">Final Selling Rate (₹) *</label>
+          <input type="number" id="other-prod-price" class="form-control" step="0.01" value="0" required>
           </div>
           <div class="form-group">
             <label class="form-label">Quantity *</label>
             <input type="number" id="other-prod-qty" class="form-control" min="1" value="1" required>
           </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">GST Rate (%)</label>
-          <input type="number" id="other-prod-gst" class="form-control" value="18">
-        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin: -4px 0 14px;">The entered price is billed directly. GST is not added.</div>
         <button type="submit" class="btn btn-primary btn-block">ADD TO BILL & SAVE TO CATALOG</button>
       </form>
     </div>

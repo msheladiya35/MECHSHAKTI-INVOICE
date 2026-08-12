@@ -1,14 +1,14 @@
-const CACHE_NAME = 'mechshakti-v3';
+const CACHE_NAME = 'mechshakti-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/css/styles.css',
-  '/js/api.js',
-  '/js/db_offline.js',
-  '/js/pdf_export.js',
-  '/js/app.js',
+  '/style.css',
+  '/app.js',
+  '/jsqr.js',
   '/manifest.json',
-  '/icons/icon.svg'
+  '/icons/icon.svg',
+  '/assets/logo.png',
+  '/assets/favicon.png'
 ];
 
 // Install Event - Pre-cache App Shell
@@ -39,12 +39,14 @@ self.addEventListener('activate', (event) => {
 
 // Fetch Event - Network First for APIs, Cache First / Stale-While-Revalidate for Static Assets
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
   const url = new URL(event.request.url);
 
-  // For API endpoints: Network ONLY with graceful offline fallback
-  if (url.pathname.startswith && url.pathname.startsWith('/api/')) {
+  // API responses contain live account data and must never be cached.
+  if (url.origin === self.location.origin && url.pathname.startsWith('/api/')) {
     event.respondWith(
-      fetch(event.request).catch((err) => {
+      fetch(event.request).catch(() => {
         return new Response(
           JSON.stringify({ error: 'You are currently offline. Please check your network connection.', offline: true }),
           { status: 503, headers: { 'Content-Type': 'application/json' } }
@@ -54,7 +56,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For Static Assets: Cache first, fallback to network
+  // Do not try to cache third-party requests such as payment or font assets.
+  if (url.origin !== self.location.origin) return;
+
+  // Cache only the local app shell. The cache version changes on each release,
+  // so an updated app is served immediately after the service worker activates.
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
