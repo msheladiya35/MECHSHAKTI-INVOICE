@@ -120,10 +120,10 @@ def run_acceptance_tests():
     # 8. Customer Khatabook Ledger Statement Check
     st_ledg, ledg_res = request(f"/api/customers/{cust_id}/ledger", token=token_seller)
     assert st_ledg == 200
-    assert ledg_res["total_billed"] == 1475.0  # 1250 base + 18% GST (225) = 1475
+    assert ledg_res["total_billed"] == 1250.0  # 1250 simple price (NO GST)
     assert ledg_res["total_paid"] == 1000.0
-    assert ledg_res["outstanding_balance"] == 475.0
-    print(f"✔ 9. KHATABOOK LEDGER: Verified customer ledger balance (Billed: ₹1475, Paid: ₹1000, Outstanding: ₹475).")
+    assert ledg_res["outstanding_balance"] == 250.0
+    print(f"✔ 9. KHATABOOK LEDGER: Verified customer ledger balance (Billed: ₹1250, Paid: ₹1000, Outstanding: ₹250).")
 
     # 9. Invoice Cancellation & Audit Trail Check
     st_canc, canc_res = request(f"/api/invoices/{inv_id}/cancel", "POST", {"reason": "Customer billing error correction"}, token=token_seller)

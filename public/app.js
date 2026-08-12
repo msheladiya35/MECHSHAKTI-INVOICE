@@ -541,7 +541,6 @@ document.getElementById('form-other-product')?.addEventListener('submit', async 
 
       const p = res.product;
       const line_base = (p.selling_price * qty);
-      const line_gst = line_base * (p.gst_rate / 100.0);
       
       const item = {
         product_id: p.id,
@@ -550,8 +549,8 @@ document.getElementById('form-other-product')?.addEventListener('submit', async 
         quantity: qty,
         battery_code: null,
         discount: 0,
-        gst_rate: p.gst_rate,
-        total: line_base + line_gst
+        gst_rate: 0,
+        total: line_base
       };
 
       currentInvoiceDraft.items.push(item);
@@ -579,8 +578,8 @@ function addBillItem() {
     quantity: qty,
     battery_code: scannedText || null,
     discount: 0,
-    gst_rate: 18.0,
-    total: rate * qty * 1.18
+    gst_rate: 0,
+    total: rate * qty
   };
 
   currentInvoiceDraft.items.push(item);
@@ -704,7 +703,7 @@ async function openInvoicePreviewModal(invId) {
             <div style="font-size:0.8rem; color:var(--text-muted);">Phone: ${inv.seller_phone || ''}</div>
           </div>
           <div style="text-align:right;">
-            <strong style="font-size:1.1rem;">TAX INVOICE</strong>
+            <strong style="font-size:1.1rem;">SALES BILL / CASH MEMO</strong>
             <div style="font-family:monospace; font-weight:700; color:var(--mech-orange);">${inv.invoice_number}</div>
             <div style="font-size:0.8rem; color:var(--text-muted);">${inv.invoice_date}</div>
           </div>
@@ -766,7 +765,7 @@ function shareInvoiceWhatsApp() {
   const items = activePreviewInvoice.items || [];
   const itemsSummary = items.map(it => `• ${it.product_name_snapshot} x${it.quantity} (₹${it.line_total})`).join('\n');
 
-  const text = `⚡ *MECHSHAKTI TAX INVOICE*\n` +
+  const text = `⚡ *MECHSHAKTI SALES BILL*\n` +
     `🧾 *Invoice #*: ${inv.invoice_number}\n` +
     `📅 *Date*: ${inv.invoice_date}\n` +
     `👤 *Customer*: ${inv.customer_name} (${inv.customer_shop || 'Individual'})\n` +

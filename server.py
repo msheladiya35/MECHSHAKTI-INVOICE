@@ -1403,12 +1403,12 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                     gst_rate = float(item.get("gst_rate", prod["gst_rate"]))
 
                     line_base = (unit_price * qty) - disc
-                    line_gst = line_base * (gst_rate / 100.0)
-                    line_total = line_base + line_gst
+                    line_gst = 0.0
+                    line_total = line_base
 
                     taxable_amount += line_base
                     discount_amount += disc
-                    gst_amount += line_gst
+                    gst_amount += 0.0
                     grand_total += line_total
 
                     b_code_norm = normalize_battery_code(item.get("battery_code", ""))
@@ -1422,8 +1422,8 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "quantity": qty,
                         "unit_price": unit_price,
                         "discount": disc,
-                        "gst_rate": gst_rate,
-                        "gst_amount": line_gst,
+                        "gst_rate": 0.0,
+                        "gst_amount": 0.0,
                         "line_total": line_total
                     })
 
@@ -1432,8 +1432,8 @@ class MechshaktiRequestHandler(http.server.SimpleHTTPRequestHandler):
                 fy_code = "26-27"
                 inv_number = f"MS/SRT{partner_id:02d}/{fy_code}/{next_seq:06d}"
 
-                cgst = round(gst_amount / 2.0, 2)
-                sgst = round(gst_amount / 2.0, 2)
+                cgst = 0.0
+                sgst = 0.0
                 igst = 0.0
 
                 if payment_mode == 'PAID':
